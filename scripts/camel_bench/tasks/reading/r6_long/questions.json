@@ -1,0 +1,78 @@
+[
+  {
+    "id": "q1",
+    "question": "In the regional decoder specialization paper, what name do the authors give to their Tiny Aya based SLAM-ASR models?",
+    "answer": "LisTAya",
+    "aliases": [],
+    "position": 0.028
+  },
+  {
+    "id": "q2",
+    "question": "In the regional decoder specialization paper, what CER does the best off-the-shelf model reach on Seselwa?",
+    "answer": "85.18 CER",
+    "aliases": [
+      "85.18"
+    ],
+    "position": 0.047
+  },
+  {
+    "id": "q3",
+    "question": "In Table 4 of the regional decoder specialization paper, what is the loss rise for the Very Low resource tier?",
+    "answer": "0.211",
+    "aliases": [],
+    "position": 0.049
+  },
+  {
+    "id": "q4",
+    "question": "In the multilingual ASR quantization paper, how many short-form utterances does one full model sweep evaluate?",
+    "answer": "159,879",
+    "aliases": [],
+    "position": 0.151
+  },
+  {
+    "id": "q5",
+    "question": "In the SLAM-ASR prompting paper, how long does one projector training run take on one H200 GPU (median)?",
+    "answer": "15.2 h",
+    "aliases": [],
+    "position": 0.194
+  },
+  {
+    "id": "q6",
+    "question": "In the teacher-guided data augmentation letter, up to how many times fewer parameters do LRNets use?",
+    "answer": "3.9 times",
+    "aliases": [],
+    "position": 0.309
+  },
+  {
+    "id": "q7",
+    "question": "In the large-scale backbone study, what relative increase in training time does CALMix incur over the frozen setting?",
+    "answer": "1632%",
+    "aliases": [],
+    "position": 0.446
+  },
+  {
+    "id": "q8",
+    "question": "In the ternary LLM decoder paper, how large is the Bonsai-4B decoder as built?",
+    "answer": "1,482 MB",
+    "aliases": [
+      "1,482"
+    ],
+    "position": 0.806
+  },
+  {
+    "id": "q9",
+    "question": "In the configurable token reduction FPGA accelerator paper, what is the latency of the unreduced 288 × 288 baseline?",
+    "answer": "430.6 ms",
+    "aliases": [
+      "430.6"
+    ],
+    "position": 0.97
+  },
+  {
+    "id": "q10",
+    "question": "In the configurable token reduction FPGA accelerator paper, by how much does the keep rate 0.7 design miss timing at 200 MHz?",
+    "answer": "57 ps",
+    "aliases": [],
+    "position": 0.972
+  }
+]

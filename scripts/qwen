@@ -1,0 +1,12 @@
+#!/bin/bash
+# qwen -- open Qwen Code against the local llama-server; start the server first with ~/edwin/llama_server.sh.
+# Usage: ~/edwin/qwen [qwen args], e.g. -c (continue last session here), -r (pick a session).
+set -euo pipefail
+
+E=/edahome/pcslab/pcs05/edwin
+if ! curl -sf http://127.0.0.1:8080/health >/dev/null; then
+  echo "llama-server is not running (or still loading). Start it with: ~/edwin/llama_server.sh" >&2
+  exit 1
+fi
+export PATH=$E/tools/node-v22.23.2-linux-x64-glibc-217/bin:$PATH
+exec qwen "$@"

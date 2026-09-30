@@ -1,0 +1,26 @@
+{
+  "max_words": 150,
+  "summary_scope": "first paper only: Cultivar Identification from Leaf Images with a Semantic Adaptation Warmup for Frozen Vision Transformers",
+  "key_facts": [
+    [
+      "cultivar"
+    ],
+    [
+      "semantic adaptation warmup",
+      "warmup"
+    ],
+    [
+      "frozen",
+      "parameter-efficient"
+    ],
+    [
+      "5.9",
+      "12.6"
+    ],
+    [
+      "dual-attention",
+      "supervised contrastive",
+      "supcon"
+    ]
+  ]
+}

@@ -1,0 +1,17 @@
+{
+ "max_sentence_words": 25,
+ "forbidden": [
+  ";",
+  "\u2014",
+  " -- "
+ ],
+ "required": [
+  "\\NumFleursLocales{}",
+  "\\cite{conneau2022fleurs}",
+  "\\cite{holm_simple_1979}",
+  "\\cite{wilcoxon_individual_1945}",
+  "\\textbf{Populations and tests.}"
+ ],
+ "min_ratio": 0.6,
+ "max_ratio": 1.4
+}

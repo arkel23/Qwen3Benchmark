@@ -1,0 +1,80 @@
+[
+  {
+    "id": "q1",
+    "question": "What name do the authors give to their SLAM-ASR models built with Tiny Aya decoders?",
+    "answer": "LisTAya",
+    "aliases": [],
+    "position": 0.3
+  },
+  {
+    "id": "q2",
+    "question": "On which GPU is every projector training run performed?",
+    "answer": "NVIDIA H200",
+    "aliases": [
+      "H200"
+    ],
+    "position": 0.33
+  },
+  {
+    "id": "q3",
+    "question": "What learning rate does projector training use with AdamW?",
+    "answer": "1.5 × 10−3",
+    "aliases": [],
+    "position": 0.326
+  },
+  {
+    "id": "q4",
+    "question": "At 5% significance and 80% power, what is the smallest true advantage the design can reliably detect on the selection curve?",
+    "answer": "4.90 CER",
+    "aliases": [
+      "4.90"
+    ],
+    "position": 0.414
+  },
+  {
+    "id": "q5",
+    "question": "What CER does the best of the three off-the-shelf models reach on Seselwa?",
+    "answer": "85.18 CER",
+    "aliases": [
+      "85.18"
+    ],
+    "position": 0.512
+  },
+  {
+    "id": "q6",
+    "question": "In Table 2, what is Tamil's ∆ (matched CER minus the mean of the other two regional variants)?",
+    "answer": "-14.70",
+    "aliases": [],
+    "position": 0.575
+  },
+  {
+    "id": "q7",
+    "question": "How many parameters does the shared Tiny Aya multilingual base model have?",
+    "answer": "3.35B",
+    "aliases": [],
+    "position": 0.209
+  },
+  {
+    "id": "q8",
+    "question": "In Table 4, what is the loss rise for the Very Low resource tier?",
+    "answer": "0.211",
+    "aliases": [],
+    "position": 0.53
+  },
+  {
+    "id": "q9",
+    "question": "Which off-the-shelf baseline is the same model as the speech encoder used by the trained systems?",
+    "answer": "Whisper-Medium",
+    "aliases": [],
+    "position": 0.342
+  },
+  {
+    "id": "q10",
+    "question": "What share of the Fire variant's post-training mix is English?",
+    "answer": "46.2%",
+    "aliases": [
+      "46.2"
+    ],
+    "position": 0.294
+  }
+]

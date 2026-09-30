@@ -1,0 +1,7 @@
+model,tier,info_level,wall_s,rc,script_lines,findings_md,root_cause_found,ternarization,executed_result,route,verdict
+qwen3.8-27b,T1,blind,3600,124_timeout,388,no,yes,yes,runs_32.6_tok_s_2.00x_smaller_after_my_kwargs_fix,custom_triton_int8_gemm,runs_but_uncompetitive
+qwen3.8-27b,T2,pointers,706,0,251,yes,yes,NO,exported_0/7_ternary_dense_PPL_31218,gguf_TQ,BROKEN
+qwen3.8-27b,T3,full_brief,685,0,199,yes,given,yes,exported_7/7_ternary,gguf_TQ1_0/TQ2_0,CORRECT
+sonnet5,T1,blind,~240,0,~210,yes,yes,yes,packs_int2_1.72x_crashed_before_throughput_path_bug,torchao_int2,incomplete
+sonnet5,T2,pointers,~247,0,171,yes,yes,NO,crashed_NoneType_to_dict_no_checkpoint,gguf_TQ,BROKEN
+sonnet5,T3,full_brief,~232,0,219,yes,given,yes,exported_7/7_ternary,gguf_TQ1_0/TQ2_0,CORRECT

@@ -1,0 +1,3163 @@
+=== PAPER: Cultivar Identification from Leaf Images with a Semantic Adaptation Warmup for Frozen Vision Transformers ===
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+1
+
+Cultivar Identification from Leaf Images with a
+Semantic Adaptation Warmup for Frozen Vision Transformers
+Edwin Arkel Rios Student Member, IEEE, Femiloye Oyerinde, Fernando Mikael, Oswin Gosal, Min-Chun
+Hu, Senior Member, IEEE, and Bo-Cheng Lai
+
+Abstract—Identifying the cultivar of a crop from its leaves
+underpins breeding programs and seed certification, but it is
+done by hand: the visual differences between cultivars are
+finer than those between species, and labeled data is scarce.
+The usual remedy, adapting a network pretrained on a generic
+corpus, transfers poorly: across thirteen configurations built on
+a frozen Vision Transformer, accuracy falls from between 82.9%
+and 88.7% on a species-level benchmark to at most 69.7% on
+the easiest of ten cultivar datasets, and a linear classifier on
+the frozen representation reaches only 17.9% on SoyGlobal.
+We attribute this to a semantic gap between what generic
+pretraining encodes and what separating cultivars requires, and
+we close it with a Semantic Adaptation Warmup (SAW): the
+inserted adaptation modules are first trained against a supervised
+contrastive objective on a pooled corpus of cultivar imagery, and
+only then is the classifier trained. The warmup is driven by
+a Dual-Attention-driven Mix Augmentation SupCon (DAMAS)
+strategy, which locates discriminative regions from the attention
+of two early transformer layers rather than a full rollout,
+reducing the augmentation cost from the O(L · N 2 ) of a [CLS]row rollout to O(N 2 ). Warmup happens once and adds nothing
+to inference cost. Across ten cultivar datasets at 448 × 448 the
+warmup raises average top-1 accuracy by 5.9 points over the
+same architecture without it, exceeds the strongest competing
+parameter-efficient method by 12.6 points and the strongest fully
+fine-tuned method in our comparison by 5.1 points, while training
+0.51 M parameters per 200-class task, at lower FLOPs and higher
+throughput than the alternatives.
+Index Terms—Cultivar identification, plant phenotyping, precision agriculture, ultra-fine-grained image recognition, parameterefficient transfer learning, vision transformer, contrastive learning
+
+I. I NTRODUCTION
+This article is an extended version of work presented at the Efficient Deep
+Learning for Foundation Models workshop at ECCV 2024 [1]. The inter-layer
+adapter and its evaluation appeared there; the semantic adaptation warmup, the
+gap measurement that motivates it, and all warmup experiments and ablations
+are new.
+This work was supported by the National Science and Technology Council,
+Taiwan, under grants NSTC 111-2221-E-A49-092-MY3, NSTC 113-2640-EA49-005, NSTC 112-2221-E-007-079-MY3 and NSTC 113-2218-E-007-020.
+We also thank the National Center for High-performance Computing (NCHC)
+and NYCU HPC for providing computational and storage resources.
+Edwin Arkel Rios and Bo-Cheng Lai are with the Institute of Electronics, National Yang Ming Chiao Tung University, Hsinchu, Taiwan (email:
+is with Cohere Labs Community. Fernando Mikael, Oswin Gosal, and
+Min-Chun Hu are with the Computer Science Department, National Tsing
+(Edwin Arkel Rios and Femiloye Oyerinde contributed equally to this work.)
+(Corresponding author: Edwin Arkel Rios.)
+
+T
+
+ELLING one cultivar of a crop from another by eye is
+a routine and consequential task in agriculture. Breeding
+programmes must track which variety is growing in which
+plot, and seed certification depends on confirming varietal
+identity; both are done today by trained inspectors working
+from leaf morphology. It is slow, and it does not scale: expert
+accuracy falls as the number of candidate cultivars grows, and
+annotating images to train a model requires the same scarce
+expertise, so labeled data stays thin — often only a handful
+of images per cultivar. Figure 1 shows what makes the task
+hard: leaves of different cultivars look nearly identical, while
+leaves of one cultivar vary widely.
+
+Fig. 1. Samples of different classes from the ultra-fine-grained SoyGene
+and SoyLocal datasets [2], highlighting subtle inter-class differences and
+pronounced intra-class diversity.
+
+Automated visual recognition in agrifood has advanced
+quickly on tasks of this shape. Deep networks now classify
+potato breeds from tuber and leaf imagery [3], grade defects
+in soybean kernels [4], identify individual cattle from muzzle
+patterns [5], detect plant disease in real time from a drone [6],
+and discriminate visually similar seedlings under varying field
+conditions [7]. What these share with cultivar identification is
+that the distinction to be made is finer than the species level,
+so the discriminative evidence is subtle, distributed, and easily
+swamped by variation within a class. This regime is known
+as ultra-fine-grained image recognition (UFGIR) [2], and it
+separates cultivar identification from conventional fine-grained
+recognition, which stops at species-level granularity [8], [9].
+
+A. The problem: pretrained features do not transfer to cultivar
+granularity
+The standard recipe for a task with few labels is to take
+a network pretrained on a large generic corpus and adapt it.
+For cultivar recognition that recipe fails at the first step, and
+it fails by a wide margin.
+We measured this directly. Holding a Vision Transformer’s
+[10] pretrained weights frozen and training only lightweight
+modules on top, we evaluated thirteen such configurations —
+those of Tab. II that were run on both benchmarks — at
+
+0000–0000/00$00.00 © 2021 IEEE
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+224×224 resolution on a species-level fine-grained benchmark
+(CUB-200-2011, birds) and ten cultivar-level leaf datasets. On
+the species benchmark every configuration reaches between
+82.9% and 88.7% top-1 accuracy. On the cultivar datasets the
+best of those same thirteen configurations, on the easiest of
+the ten datasets, reaches 69.7%, and the weakest combinations
+fall below 10%. Every configuration on the species benchmark
+outperforms every configuration on every cultivar dataset, with
+13.2 points separating the worst of the former from the best of
+the latter. A plain linear classifier on the frozen representation
+illustrates the same point at its starkest: 17.9% on SoyGlobal
+and 19.5% on SoyGene.
+The shortfall is visible in the representation itself, before
+any adaptation is attempted. We computed the layer-wise
+Centered Kernel Alignment [11] of the pretrained encoder on
+all eleven datasets under one protocol, with no training of
+any kind. Averaged over the deepest third of the encoder,
+similarity between layers is 0.56 to 0.57 on the species
+benchmark but between 0.709 and 0.743 on every one of the
+ten cultivar datasets, at both input resolutions we evaluate: the
+two ranges never overlap, on any dataset, at either resolution.
+On cultivar imagery the deep layers of the pretrained encoder
+have largely stopped distinguishing one layer’s output from
+another’s, which is the representational form of the same
+failure the accuracies report. A second, independent measure
+agrees. At matched class count, the log maximum evidence
+[12] of the frozen features is 1.50 on the species benchmark
+against 1.23 to 1.26 on every cultivar dataset of comparable
+granularity.
+This is not a shortage of data. SoyGene carries more training
+images than the species benchmark and still scores far lower.
+It is a mismatch between what generic pretraining encodes and
+what separating cultivars requires — a semantic gap between
+the pretraining domain and the target task. Closing it, rather
+than merely adding capacity on top of it, is what this article
+addresses.
+The gap also explains why parameter-efficient adaptation
+is the natural setting here rather than an afterthought. Fully
+fine-tuning a transformer for every cultivar task is expensive to store and to serve, and deployment in this domain
+means a handheld or airborne device rather than a datacenter.
+Parameter-efficient transfer learning (PETL) methods [13]–
+[15] answer that by freezing the backbone and training small
+inserted modules, so one copy of the backbone serves many
+tasks. But a frozen backbone is exactly the case where the gap
+bites hardest, because the representation cannot move to meet
+the task. Two symptoms follow. The deeper encoder layers
+converge toward nearly identical representations, a degradation
+of representational diversity known as attention collapse [16]–
+[19] and visible in the layer-wise similarity of Fig. 4. And
+the attention that remains settles on background rather than
+on the leaf, as Fig. 2 shows — a shortcut [20] that a model
+with few labeled images is readily driven to. A method that
+adapts a frozen backbone for cultivar recognition therefore has
+to address the gap explicitly.
+
+2
+
+Fig. 2. Samples and attention maps on SoyAgeing [2] for different PETL
+methods: linear classifier ViT [10], Adapter [21], ILA (Ours) and SAW (Ours).
+Previous baselines display higher attention to background regions.
+
+B. Approach
+We introduce a Semantic Adaptation Warmup (SAW): a
+stage that trains the inserted adaptation modules against a
+supervised contrastive objective, on a pooled corpus of cultivar
+imagery, before the classifier is trained. Its augmentation is
+data-aware — discriminative regions are located from the
+attention of two early transformer layers and swapped between
+images, which costs O(N 2 ) rather than the O(L · N 2 ) of
+a full attention rollout [22]–[24], where L is the number
+of transformer layers and N the sequence length. We call
+this augmentation Dual-Attention-driven Mix Augmentation
+SupCon (DAMAS). Earlier work has added self-supervised or
+contrastive losses to fine-tuning [25]–[28], but trains them on
+the target dataset alone and augments without regard to where
+the discriminative evidence lies. The warmup adds nothing
+to inference cost: it changes only the state the modules start
+from. Nor is it tied to the module it initializes: applied to a
+plain adapter, with no inter-layer module at all, it is worth 8.8
+points across the ten datasets.
+Across ten cultivar datasets, the warmup raises average
+top-1 accuracy by 5.9 points at 448 × 448 over the same
+architecture trained without it, and by 6.7 points at 224 × 224;
+against the strongest competing parameter-efficient method,
+FFVT, the margins are 12.6 and 11.1 points respectively. It
+trains 0.51 M parameters per task, of which the 200-class head
+is 0.15 M — the head scales with the label set. Inference costs
+67.1 GFLOPs against 78.5 for the frozen baseline, with higher
+batched throughput than every parameter-efficient method we
+compare against.
+
+C. Relation to our earlier work
+This article extends a paper published at the Efficient Deep
+Learning for Foundation Models workshop at ECCV 2024 [1].
+That paper contributed:
+1) an Inter-Layer Adapter (ILA) that spatially downsamples the token grid between frozen encoder blocks,
+introducing a hierarchical inductive bias that counters
+attention collapse while reducing inference cost; and
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+2) an evaluation across ten cultivar datasets against more
+than fifteen methods, establishing that the adapter is
+competitive with fully fine-tuned models while training
+a small fraction of the parameters — 123× fewer
+deployable parameters, summed across the ten datasets,
+than the fully fine-tuned methods compared.
+The adapter and its design ablation are therefore prior work,
+summarized here as the architecture this article builds upon.
+New to this article are:
+1) the semantic adaptation warmup and its DAMAS augmentation, with the efficient two-layer attention formulation described above;
+2) the measurement of the pretraining-to-cultivar gap reported above, which motivates the warmup and quantifies the problem the earlier paper left implicit;
+3) ablations isolating the warmup’s components — its
+augmentation, its objective, and the breadth of the corpus
+it is trained on;
+4) evidence that the warmup is independent of the adapter
+it initializes: applied to a plain adapter with no interlayer module anywhere, it raises average accuracy by
+8.8 points and helps on all ten datasets;
+5) a comparison across pretraining strategies, showing the
+warmup transfers between backbones; and
+6) results at a second input resolution across all ten
+datasets, together with insertion-location and downsampling-rate studies.
+
+3
+
+On the other side, self-supervised learning has also become
+crucial to learn discriminative features with limited data [25]–
+[27]. Foundational contrastive methods like SimCLR [34] and
+SupCon [35] define positive pairs via data augmentations or
+class labels, but their use of generic augmentations limits
+performance in fine-grained tasks. Recent extensions, such as
+PID [36] and SelfCon [37], introduce stronger cross-image
+augmentations [38] or auxiliary modules that increase training
+complexity or overlook subtle details critical for UFGIR.
+Therefore, current SOTA methods such as MixViT [25],
+CLE-ViT [26] and CSDNet [27] have incorporated selfsupervised learning to further enhance the extraction of ultrafine discriminative features; most recently, GAEor [39] sets
+the fully fine-tuned state of the art on these benchmarks by
+encoding geometric attributes of amplified details as a selfsupervised signal on a Swin-B backbone. However, they employ generic or weak data augmentation which limits feature
+learning with scarce data. Additionally, most of these methods
+employ transformer-based backbones with a large number of
+parameters that all need to be stored for deployment and
+require significant resources during training.
+To address these limitations our method uses ViT attention
+to identify and swap discriminative regions in image pairs
+for label-aware contrastive learning. This approach enhances
+representation learning under limited data constraints through
+the usage of cross-image data-aware augmented positives.
+Furthermore, we employ parameter-efficient transfer learning
+to reduce number of deployable parameters and training costs,
+ensuring our method remains scalable and deployment-friendly
+while preserving ultra-fine-grained recognition performance.
+
+II. R ELATED W ORK
+A. Ultra Fine-Grained Image Recognition
+
+B. Parameter-Efficient Transfer Learning
+
+Ultra fine-grained image recognition (UFGIR) remains a
+challenging task due to subtle inter-class differences and
+limited labeled data. To address this, many methods build
+on generic recognition backbones and augment them with
+modules or loss functions that effectively select and aggregate discriminative features [29]–[32]. For instance, FFVT
+[30] leverages ViT attention scores to extract and aggregate
+intermediate low-, medium-, and high-level features through
+the last transformer encoder block, enhancing sensitivity to
+subtle fine-grained differences.
+
+Parameter-efficient transfer learning (PETL) techniques seek
+to fine-tune only a small subset of a model’s parameters while
+keeping the majority of the pretrained backbone fixed. These
+methods generally fall into two categories: prompt-tuning and
+adapter-based approaches.
+
+Given the data constraints in UFGIR, tailored data augmentation strategies [2], [31]–[33] are critical. Earlier methods such as SPARE [32] employ CNNs to extract semantic
+regions for augmentation. More recent methods make use
+of transformer aggregated attention for data-aware augmentations [23], [24], but incur high computational costs since
+they employ attention rollout for aggregation [22] which has
+complexity of O(L · N 3 ) with respect to the number of
+transformer layers L and the sequence length N . In contrast,
+our method uses an efficient implementation based on two
+early ViT layers, drastically reducing complexity to O(N 2 ).
+
+Prompt-tuning [13] augments the input sequence with additional task-specific, learnable tokens appended at various
+stages of the transformer. For instance, VQT [40] employs
+these tokens as queries to aggregate layer-wise information,
+which is then integrated into the classification head. However,
+the incorporation of extra tokens not only increases the computational cost during the forward pass but also leads to a
+rapid increase in the parameters for the classification head.
+In contrast, adapter-based methods insert lightweight, nonlinear modules directly within transformer layers. Originally
+proposed by Houlsby et al. [21] in the natural language
+processing domain, adapters have been successfully adapted
+for vision transformers. For example, ConvPass [41] and ProTuning [14] extend this concept by integrating 2D convolutions to inject spatial biases, thereby enhancing the extraction
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+4
+
+Fig. 3. Overview of the ViT architecture with our proposed Inter-Layer Adapter (ILA) and Semantic Adaptation Warmup (SAW) stage. The transformer
+encoders are divided into three groups, with the ILA module applied after the first two groups to enforce hierarchical feature extraction via dual branch spatial
+downsampling; this design enables residual gradient flow critical for incorporating downsampling in parameter-efficient setting. During the SAW stage, dualattention rollout from early layers guides data-aware augmentation through our Dual-Attention Mix Augmented SupCon (DAMAS) strategy, pretraining only
+the adapter modules using a supervised contrastive loss. After warmup, the projection head is discarded and replaced by a classification head for fine-tuning
+on the target task.
+
+of fine-grained features. However, these existing PETL methods do not incorporate hierarchical biases, such as features
+downsampling, which impacts the performance of UFGIR
+tasks under data scarcity.
+
+a classification head and train the model to predict the class
+label based on a cross-entropy loss.
+
+A. Vision Transformer Encoder
+III. M ETHOD
+The overview of our method is shown in Fig. 3. Our InterLayer Adapter (ILA) mitigates attention collapse [16]–[19] by
+enforcing spatial hierarchical feature extraction via lightweight
+adapters inserted between frozen ViT layers. The proposed
+ILA employs two branches, Spatial Downsampling (SDS)
+branch and Residual Spatial Downsampling (RSDS), to enable
+residual gradient flow necessary for spatial downsampling in
+the parameter-efficient setting.
+Furthermore, to support better initialization for the adapter
+modules we propose employing a Semantic Adaptation
+Warmup (SAW) stage with Dual-Attention Mix Augmented
+SupCon (DAMAS) strategy. During the SAW stage, dataaware cross-image mix augmentations are produced through
+the use of an efficient dual-layer attention rollout mechanism.
+Extracted features from the original images and augmented
+are passed through a projection head to obtain representations
+for a supervised contrastive loss. This loss enforces the model
+to learn discriminative details to push apart representations
+from different images and classes (negative pairs) and pull
+closer images corresponding to the same class (positive pairs).
+In this stage only the parameter-efficient modules are trained
+while the encoder parameters are kept frozen. Subsequently,
+in the finetuning stage we replace the projection head with
+
+The Vision Transformer (ViT) encoder processes an input
+image X ∈ RIS×IS×C , where IS denotes the image side
+length and C the number of channels. The image is patchified
+using a convolution with kernel size and stride P × P ,
+producing SZ1 = IS/P patches along each spatial dimension.
+These patches are flattened and linearly projected into Ddimensional embeddings, forming an input token sequence of
+length N1 = SZ21 . A learnable classification token ([CLS])
+is prepended to the sequence, and positional embeddings are
+added to preserve spatial information. The resulting sequence
+is then passed through a series of L transformer encoder
+blocks, each consisting of multi-head self-attention (MHSA)
+and position-wise feed-forward networks (PWFFN) [42]; the
+output of each encoder block is denoted as Zl . Finally, a
+LayerNorm [43] followed by a linear classifier is applied to
+the [CLS] token for prediction.
+
+B. Attention Collapse in Vision Transformers
+Recent studies have identified a phenomenon known as
+attention collapse in Vision Transformers (ViTs) [17], [19],
+where attention weights between tokens become increasingly
+uniform across layers. This over-smoothing [44] leads to loss
+of high-frequency information and a reduction in representational diversity. Such uniformity is particularly detrimental in
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+ultra-fine-grained image recognition (UFGIR), where nuanced
+inter-class variations must be preserved and emphasized.
+The problem is further exacerbated in parameter-efficient
+transfer learning (PETL) settings, where only a small number
+of additional parameters (e.g., adapters) are fine-tuned while
+the pretrained ViT backbone remains frozen. In such settings,
+we observe that the attention matrices of deeper transformer
+layers become extremely similar, as measured by the Centered
+Kernel Alignment (CKA) similarity shown in Fig. 4. This
+indicates redundancy in the feature encoding process, limiting
+the ability of the model to extract discriminative features
+necessary for fine-grained tasks and highlighting the need
+for specialized mechanisms that preserve or enhance attention
+diversity during adaptation.
+
+5
+
+C. ILA: Inter-Layer Adapter
+To mitigate attention collapse and encourage the model
+to attend to distinct spatial regions throughout the encoding
+process, we introduce the Inter-Layer Adapter (ILA) module.
+ILA explicitly imposes a hierarchical structure by progressively reducing the spatial resolution of token embeddings
+between groups of transformer encoder blocks. This design
+draws inspiration from prior work that embeds hierarchical
+inductive biases into the model architecture for richer feature
+encoding [45], [46].
+We divide the transformer encoder into three groups, each
+operating at a different spatial resolution. The spatial resolution at group i is denoted by SZi × SZi , where i ∈ {1, 2, 3}
+and SZ1 > SZ2 > SZ3 . Transitions between these groups are
+implemented using the ILA module, which performs spatial
+downsampling according to:
+
+SZi+1 = SZi − (KS − 1),
+
+(1)
+
+where KS is the kernel size of the depthwise convolution.
+The token sequence zl ∈ RNi ×D at stage i (with Ni = SZ2i )
+is first reshaped into a 2D feature map of shape SZi ×SZi ×D
+to facilitate convolutional processing.
+
+Fig. 4. Centered Kernel Alignment (CKA) similarity [11] between attention
+layers of a ViT after undergoing parameter-efficient fine-tuning on the Cotton
+[2] dataset. Top-left: baseline without PETL modules. Top-right: ViT with
+standard Adapters [21]. Bottom-left: ViT with the proposed Inter-Layer
+Adapter (ILA). Bottom-right: ViT with ILA and the proposed SAW twostage training strategy. Lighter colors indicate higher inter-layer similarity,
+reflecting increased redundancy. The top-left, top-right and bottom-left panels
+are reproduced from our earlier workshop paper [1].
+
+The ILA consists of two branches: the Spatial Downsampling (SDS) branch and the Residual Spatial Downsampling
+(RSDS) branch. While the structure of the SDS resembles
+the convolutional branch proposed in [41], our design introduces two key differences: (1) we use depthwise separable
+convolution [47] to reduce computation, and (2) we omit
+padding to explicitly reduce spatial resolution at each stage.
+Furthermore, the RSDS branch provides a novel residual path
+to preserve information across groups. These design choices
+encourage feature diversity by enforcing hierarchical encoding
+while reducing computational costs.
+1) Spatial Downsampling Branch (SDS): The SDS branch
+takes as input the token sequence Zl ∈ R(1+Ni )×D at group
+i, where Ni = SZ2i , and performs spatial downsampling
+through three main steps: (1) channel downsampling (CDS),
+(2) depthwise separable convolution (DWSConv), and (3)
+channel upsampling (CUS).
+First, a projection reduces the channel dimension from D to
+a smaller dimension d (d ≪ D), producing zCDS
+∈ RNi ×d :
+l
+ZCDS
+= GELU(LN(Zl WCDS + bCDS ))
+l
+
+Fig. 5. Deep-layer CKA for each parameter-efficient setting on all ten cultivar
+datasets, the trend behind the single-dataset maps of Fig. 4. Adapters reduce
+inter-layer redundancy relative to the frozen encoder on every dataset, and
+ILA reduces it further on nine of the ten.
+
+(2)
+
+where WCDS ∈ RD×d and bCDS ∈ Rd are learnable param2
+eters. After the CDS, the token sequence zl ∈ R(1+SZi )×D is
+split into the [CLS] token and patch tokens. The patch tokens
+are reshaped into a 2D feature map of shape SZi × SZi × d to
+be processed by the depthwise separable convolution, while
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+6
+
+the [CLS] token is reshaped into a shape 1 × 1 × d, to be
+processed by a depth-wise convolution with kernel size 1.
+Next, a depthwise convolution is applied to each channel
+independently, without padding, resulting in reduced spatial
+dimensions. For each channel c ∈ {0, 1, . . . , d − 1} and spatial
+location (a, b), the convolution is defined as:
+
+ZDWC
+(c, a, b) =
+l
+
+KS−1
+∑︂ KS−1
+∑︂
+p=0
+
+zRSDS
+(c, a, b) =
+l
+
+KS−1
+∑︂ KS−1
+∑︂
+p=0
+
+Zl (c, a + p, b + q) · kcRSDS (p, q),
+
+q=0
+
+(6)
+where kcRSDS (p, q) ∼ N (1, 0.0012 ) are learnable convolutional weights initialized with a mean of 1 and a small variance
+to approximate an identity function I at initialization:
+
+ZCDS
+(c, a+p, b+q)·kc (p, q) (3)
+l
+ZRSDS
+(c, a, b) ≈ I(Zl (c, a, b)) = Zl (c, a, b),
+l
+
+q=0
+
+kc (p, q) denotes the kernel weights for the cth channel and
+KS is the kernel size. As no padding is used, the output spatial
+size becomes SZi+1 = SZi − (KS − 1). This step enforces
+a strict spatial hierarchy and forces the network to diversify
+attention across encoder blocks.
+The output is then passed through batch normalization
+(BN), activated using GELU, and processed by a pointwise
+convolution (PWConv) to mix channel information:
+
+ZPWC
+= PWConv(GELU(BN(ZDWC
+))).
+l
+l
+
+(4)
+
+Finally, in the channel upsampling (CUS) the output of the
+pointwise convolution, zPW
+∈ RSZi+1 ×SZi+1 ×d , is flattened
+l
+into a 1D structure and concatenated with the [CLS] token
+into a sequence of shape R(Ni+1 +1)×d , where Ni+1 = SZ2i+1 ,
+before applying a projection to restore the original embedding
+dimension D:
+
+when KS = 1.
+(7)
+
+This design allows the RSDS branch to behave as an identity
+function at the beginning of training when KS = 1, with
+the capacity to adapt its weights to modulate the influence of
+the original features, effectively acting as a learnable gating
+mechanism [49] as training progresses. At the kernel sizes
+actually deployed (KS > 1) the convolution at initialization
+behaves as a sum-pooling operation instead, and it remains
+trainable. Inspired by the transition from hand-crafted filters
+to learnable ones in early convolutional networks such as
+AlexNet [50], we adopt this strategy to introduce learnable
+residual downsampling. This design provides richer inductive
+bias than static methods while still retaining stability via nearidentity initialization.
+The output is flattened and concatenated with the original
+2
+[CLS] token, producing ZRSDS
+∈ R(1+Ni )×D .
+l
+Finally, the SDS and RSDS outputs are summed to produce
+the final downsampled token sequence:
+
+Ẑl = ZSDS
++ ZRSDS
+,
+l
+l
+ZSDS
+= GELU(LN(ZPWC
+))WCUS + bCUS ,
+l
+l
+
+(8)
+
+(5)
+
+where WCUS ∈ Rd×D and bCUS ∈ RD .
+2) Residual Spatial Downsampling (RSDS) branch: To
+preserve local information and stabilize training by ensuring
+gradient flow between encoder groups [48], we integrate a
+learnable residual connection via the Residual Spatial Downsampling (RSDS) branch. This parallel path compensates for
+the reduction in spatial resolution introduced by the SDS
+branch. Unlike fixed pooling or interpolation which can erase
+fine-grained spatial cues, RSDS uses a 2D depthwise convolution applied to the patch tokens only, leaving the [CLS] token
+unchanged to preserve its global information.
+Let zl ∈ R(1+Ni )×D denote the input token sequence,
+where the first token corresponds to [CLS]. After removing
+the [CLS] token and reshaping the remaining patch tokens
+into a spatial feature map Zl ∈ RSZi ×SZi ×D , we apply a
+depthwise convolution with the same kernel size KS as in
+the SDS branch to each channel c ∈ {0, 1, . . . , D − 1}:
+
+which is passed to the next encoder group. This additive
+fusion allows the model to retain both the refined spatial
+features from SDS and the residual identity-preserving path
+from RSDS.
+
+D. Semantic Adaptation Warmup (SAW) with DAMAS
+To further address the challenges brought by data scarcity
+in UFGIR, observed in Fig. 2 as overfitting to background
+regions, we propose a Semantic Adaptation Warmup (SAW)
+stage that allows our ViT with ILA modules to bridge the
+semantic gap [28] between generic pretraining and ultra-finegrained recognition.
+To address this issue we propose a novel strategy composed
+of the three following components:
+1) Data Diversity: we pool all ultra-fine-grained datasets to
+create a rich, diverse corpus for the adaptation warmup.
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+7
+
+Fig. 6. Example of our cross-image data augmentation. Discriminative regions
+from original leaf images (left) are swapped between image pairs (right),
+producing harder positive samples for ultra-fine-grained recognition.
+
+2) Supervised Contrastive Warmup: we pretrain the
+inter-layer adapters using a SupCon loss to align their
+features with the frozen ViT backbone.
+3) Early Attention Data-Aware Augmentation: Use
+dual-attention rollout from two early layers to identify
+and swap discriminative regions between image
+pairs from the same label, generating diverse, labelaware, cross-image augmentations as positives for the
+supervised contrastive loss.
+After warmup, adapters are fine-tuned on the target dataset.
+As shown in Fig. 4, incorporating this warmup stage results
+in deeper transformer layers that capture more distinct and
+discriminative features, in contrast to the collapsed representations observed with the frozen backbone alone. Figure 5
+shows the same comparison on all ten datasets: averaged over
+the deepest third of the encoder, similarity falls from 0.727
+for the frozen encoder to 0.661 with adapters and 0.634 with
+ILA, and the warmed state is lower still at 0.547.
+We use the supervised contrastive loss [35] with a DualAttention-driven Mix Augmentation (DAMAS), since traditional data augmentation techniques apply generic transformations that often fail to capture the subtle, discriminative
+details necessary for UFGIR. To generate label-aware positive
+samples, we cut and swap discriminative regions, using the
+dual-attention rollout, between image pairs from the same class
+as seen in Fig. 6. To obtain the embedding r for the SupCon
+loss, we first apply global average pooling to the feature ZL
+produced by the final transformer block, and then pass the
+resulting vector through a MLP projection head.
+
+Fig. 7. Attention maps from aggregated layers (e.g., ”1–4” means layers 1
+to 4) on UFGIR leaves datasets, showing the similarity between full attention
+rollout (second row) and the proposed dual-attention approach (third and
+fourth rows).
+
+among image patches. Attention rollout [22] aggregates attention across layers to highlight regions of focus, and it has
+been used for data augmentation [23], [24]. However, full
+attention rollout over L layers is computationally expensive —
+O(L · N 3 ) with full matrix products, and still O(L · N 2 ) when
+only the [CLS] row is propagated — where N is the sequence
+length and L is the number of aggregated layers, while relying
+on a single layer often produces noisy or inconsistent maps
+[51].
+To address this, we propose a dual-attention strategy that
+combines attention from two early layers, such as layers 2-3
+or 3–4, as illustrated in Fig. 7. Specifically, we extract the
+first row of the attention matrix (corresponding to the [CLS]
+token) from one layer and multiply it with that of the next
+layer, reducing the computation to O(N 2 ) — a factor of L
+below a [CLS]-row rollout over all layers, and a factor of
+L · N below the full-matrix form. The saving matters because
+N grows quadratically with image resolution.
+The third and fourth rows of Fig. 7 show that our dualattention maps capture discriminative areas comparable to the
+full rollout (second row) while being much more efficient.
+These discriminative regions guide our data-aware augmentation by swapping regions between image pairs (see Fig. 6),
+enhancing fine-grained feature learning and data diversity for
+UFGIR tasks.
+
+IV. E XPERIMENT M ETHODOLOGY
+r = M LP (GAP (ZL ))
+
+(9)
+TABLE I
+DATASET STATISTICS FOR THE ULTRA - FINE - GRAINED LEAVES
+RECOGNITION EXPERIMENTS .
+
+Lsup =
+
+∑︂
+i∈I
+
+−
+
+1 ∑︂
+exp(ri · rp /τ )
+,
+log ∑︁
+|Pi |
+a∈Ai exp(ri · ra /τ )
+
+(10)
+
+p∈Pi
+
+where r denotes the image representation or embedding, and
+P (i) denotes indices of positives distinct from i, Ai includes
+all samples except i, and τ is a hyperparameter that controls
+the distribution sharpness.
+1) Early Attention Data Aware Augmentation: In Vision Transformers (ViTs), self-attention captures relationships
+
+Datasets
+Cotton
+SoyAgeing
+SoyAgeingR1
+SoyAgeingR3
+SoyAgeingR4
+SoyAgeingR5
+SoyAgeingR6
+SoyGene
+SoyGlobal
+SoyLocal
+
+Classes
+
+Train Images
+
+Test Images
+
+80
+198
+198
+198
+198
+198
+198
+1110
+1938
+200
+
+240
+4950
+990
+990
+990
+990
+990
+12763
+5814
+600
+
+240
+4950
+990
+990
+990
+990
+990
+11143
+5814
+600
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+8
+
+In Tab. I we describe the datasets used for our experiments.
+These are ultra-fine-grained leaves datasets collected by Yu et
+al. [2], where each category represents a cultivar attached to
+the seed obtained from the genetic resource bank.
+
+over 3,526 cultivar labels, where the SoyAgeing subsets
+share their parent’s label space — and contains no test
+image of any dataset, verified by matching every image
+path in the corpus against every dataset’s test split.
+
+We conduct our experiments in two stages. First, we perform
+a learning rate search over {0.003, 0.01, 0.03, 0.1, 0.3} using
+a subset of the training data. In the second stage, we train the
+model on the full training set using the selected learning rate
+and evaluate performance on the test set over three independent runs. Results are reported in terms of top-1 accuracy mean
+and standard deviation. When applicable, the best performance
+values are highlighted in bold and the second-best values are
+underlined.
+
+To verify the effectiveness of the proposed approaches, we
+compare against 13 SOTA methods and a linear-probe baseline
+in the parameter-efficient setting. These methods are organized
+into three Families based on their fine-tuning strategies and
+feature aggregation mechanisms. The first category, PE Classifier, focuses on the classification head:
+
+In addition, we assess computational efficiency by measuring 1) task-specific trainable parameters (TSP, the number of
+parameters fine-tuned for the task), 2) inference floating-point
+operations (FLOPs), and 3) inference throughput in terms of
+images processed per second as measured on an NVIDIA RTX
+3090. We use PyTorch and WandB [52] to implement and
+manage experiments.
+All models are optimized using Stochastic Gradient Descent
+(SGD) with momentum of 0.9, a batch size of 8, and cosine
+learning rate scheduler. We fine-tune models for 50 epochs. If
+incorporating the SAW stage, we pretrain the PETL modules
+once, for 100 epochs on the pooled corpus, and reuse that
+checkpoint for every task; the warmup uses the same optimizer and batch size, a learning rate of 0.1, and a SupCon
+temperature τ of 0.07.
+For data preprocessing, we resize images to a square of size
+300 × 300 or 600 × 600, then crop a random square during
+training or a center crop during inference of size 224 × 224
+or 448 × 448, respectively. All images are horizontally flipped
+and normalized using ImageNet mean and standard deviation.
+All experiments employ the ViT B-16 [10] backbone pretrained on ImageNet-21k, with a patch size P of 16, L = 12
+transformer layers, and a hidden dimension D of 768. Reduced
+adapter dimension d is set to 8. All methods fine-tune the
+classification head and the [CLS] token. We propose four
+different variations of our method:
+
+ILA: inter-layer adapter modules with downsampling are
+inserted by default after layers 4 and 8.
+• ILA+: in addition to downsampling ILA modules, nondownsampling adapters with padding are inserted after
+all layers except layer 4 and 8.
+• ILA++: in addition to downsampling ILA modules, traditional intra-layer adapters [21] are added in every layer.
+• SAW: extends ILA++ by integrating a semantic adaptation warmup stage, wherein our proposed Dual-Attentiondriven Mix Augmentation SupCon (DAMAS) strategy
+pretrains the adapters on a diverse corpus of ultra-finegrained data before fine-tuning. The pooled corpus is the
+union of the ten datasets’ training splits — 24,367 images
+
+•
+
+Linear Classifier (Baseline, ViT B-16): the simplest PE
+method, which keeps the backbone frozen and, like every
+method here, fine-tunes only the classification head and
+the [CLS] token.
+• Low-Rank Bilinear Pooling (LR-BLP) [53]: employs a
+low-rank projection to reduce the dimensionality of the
+bilinearly pooled features.
+• Matrix Power Normalized Covariance (MPNC) [54],
+[55]: applies covariance pooling of high-level features to
+lessen instabilities of bilinear pooling.
+• Intermediate Features Aggregation (IFA) [56]: selects
+CLS tokens from intermediate layers and forwards them
+through a small MLP to aggregate cross-layer features.
+•
+
+The next category includes FGIR methods where a module
+explicitly select features based on some criteria, along with
+a possible module to aggregate these selected discriminative
+features. We evaluate these models in the parameter-efficient
+setting where only a small percentage of modules are finetuned so we refer to them as PEFGIR. It includes:
+CAL [57]: employs counter-factuality to train a bilinear
+attention module, which is used for both pooling features
+and to generate augmented versions of the input images.
+The fine-tuned components include the attention module
+and the bilinear attention pooling classification head.
+• TransFG [29]: selects features from the previous-to-last
+layer based on aggregated attention [22]. We fine-tune
+the last transformer encoder block, where the feature
+aggregation happens and the linear classification head.
+• FFVT [30]: selects and aggregates intermediate features
+based on layer-wise attention. The last transformer encoder block and the classification head are fine-tuned.
+• RAMS-Trans (RAMS) [23]: crops the image for data
+augmentation based on attention rollout [23]. Fine-tunes
+only the classification head.
+• GLSim [51]: computes the similarity between global and
+local representations of an image to select crops. An
+aggregator transformer block and the classification head
+are fine-tuned.
+•
+
+The GRPETL category includes methods proposed for
+generic image recognition under PETL settings:
+•
+
+VPT-Shallow (VPT-S) [13]: appends learnable prompts
+before the transformer encoder.
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+9
+
+TABLE II
+T OP -1 ACCURACY COMPARISON OF METHODS ON UFGIR DATASETS WITH IMAGE SIZE 224 × 224. M ETHODS ARE GROUPED BASED ON
+CHARACTERISTICS INTO FAMILIES : PE C LASSIFIER , PEFGIR, GRPETL, ILA, SAW.
+Method
+
+Cotton
+
+SoyAgeing
+
+SoyGene
+
+SoyGlobal
+
+SoyLocal
+
+ViT B-16 [10]
+LR-BLP [53]
+MPNC [55]
+IFA [56]
+
+35.42 ± 1.1
+30.56 ± 1.73
+39.72 ± 1.34
+37.92 ± 2.73
+
+44.91 ± 0.07
+30.38 ± 0.49
+38.24 ± 0.78
+49.84 ± 0.22
+
+19.45 ± 0.16
+10.73 ± 0.13
+18.26 ± 0.31
+25.08 ± 2.19
+
+17.88 ± 0.4
+5.54 ± 0.21
+17.86 ± 0.19
+27.88 ± 0.18
+
+28.83 ± 1.04
+17.39 ± 1.14
+26.0 ± 1.09
+32.67 ± 3.63
+
+TransFG [29]
+FFVT [30]
+CAL [57]
+RAMS [23]
+GLSim [51]
+
+44.86 ± 0.86
+40.28 ± 2.84
+40.0 ± 0.72
+34.44 ± 0.24
+38.89 ± 0.86
+
+53.52 ± 0.15
+63.88 ± 0.29
+51.38 ± 0.61
+47.32 ± 0.91
+53.73 ± 0.2
+
+32.51 ± 0.15
+40.56 ± 0.17
+19.54 ± 0.22
+20.62 ± 0.38
+27.58 ± 0.32
+
+34.93 ± 0.55
+38.11 ± 0.83
+24.47 ± 0.65
+18.63 ± 0.31
+31.42 ± 0.25
+
+35.83 ± 1.42
+40.78 ± 0.48
+31.83 ± 0.84
+27.28 ± 0.19
+28.72 ± 0.69
+
+VQT [40]
+VPT-S [13]
+VPT-D [13]
+ConvP [41]
+Adapter [21]
+
+39.44 ± 1.58
+32.5 ± 1.91
+24.3 ± 8.67
+40.28 ± 2.05
+41.11 ± 1.47
+
+57.95 ± 0.55
+46.49 ± 0.62
+56.12 ± 1.04
+56.01 ± 0.38
+64.95 ± 0.72
+
+31.14 ± 0.56
+23.45 ± 0.4
+35.16 ± 0.73
+43.72 ± 0.72
+44.92 ± 0.37
+
+24.91 ± 0.18
+18.63 ± 0.93
+30.35 ± 1.35
+31.41 ± 0.65
+35.04 ± 1.17
+
+34.45 ± 0.75
+26.78 ± 0.79
+19.06 ± 0.59
+33.72 ± 1.55
+33.33 ± 1.26
+
+ILA (Ours)
+ILA+ (Ours)
+ILA++ (Ours)
+
+47.78 ± 1.27
+49.72 ± 0.64
+48.33 ± 2.5
+
+56.88 ± 0.52
+60.98 ± 0.29
+67.39 ± 0.86
+
+36.95 ± 0.25
+44.18 ± 0.53
+52.1 ± 0.41
+
+34.37 ± 0.6
+35.21 ± 0.4
+43.48 ± 0.21
+
+38.0 ± 0.88
+37.61 ± 0.35
+41.28 ± 0.98
+
+SAW (Ours)
+
+50.28 ± 1.05
+
+70.18 ± 0.44
+
+59.85 ± 0.17
+
+49.62 ± 0.41
+
+53.33 ± 0.29
+
+VPT-Deep (VPT-D) [13]: appends learnable prompts to
+the sequence before each transformer block and then
+removes them after each block.
+• Visual Query Tuning (VQT) [40]: appends learnable
+prompts to be used as queries to the sequence before
+the MHSA module of each layer. These prompts are
+expedited towards the classification head where they are
+concatenated into a single large dimensional linear layer.
+• Adapter [21]: incorporates a small MLP inserted after the
+MHSA and PWFFN of each transformer encoder block.
+• ConvPass (ConvP) [41]: similar to the previous, it incorporates a small MLP inserted inside the transformer
+block, but this MLP incorporates a 3 × 3 convolution in
+between the channel downsampling and upsampling of
+the adapter.
+
+•
+
+We also compare against the SOTA employing ViTs for
+UFGIR published by Fang et al. [27]. These methods were
+trained under traditional fine-tuning settings, with all of the
+backbone parameters being adapted for each task so we refer
+to them as FT. It includes:
+SIM-Trans (SIM-Tr) [58]: employs structure information
+and multi-level contrastive learning.
+• CSDNet [27]: incorporates data-aware cropping augmentation, contrastive learning and self-distillation for learning with limited samples.
+•
+
+V. R ESULTS AND D ISCUSSION
+A. The Pretraining-to-Cultivar Gap
+Table V reports the measurement behind the motivation
+given in Sec. I, dataset by dataset, on the pretrained encoder
+with no training of any kind. Deep-layer CKA separates the
+
+species benchmark from every cultivar dataset at both input
+resolutions, and the two ranges do not overlap: 0.569 and 0.561
+on CUB-200 against 0.709 to 0.743 across the ten. On cultivar
+imagery the deepest third of the encoder has largely stopped
+distinguishing one layer’s output from the next.
+LogME needs more care, because it grows with the number
+of classes. SoyGene and SoyGlobal score above CUB-200 on
+it while carrying 1110 and 1938 classes against 200, so a direct
+ranking across the column would be misleading. Restricted to
+the seven cultivar datasets of comparable granularity, 198 to
+200 classes, CUB-200 leads every one of them: 1.499 against
+1.235 to 1.256. The same effect is visible in the SoyAgeing
+rows, where the full set and its five subsets share 198 classes
+and differ fivefold in size yet move LogME by at most 0.014.
+
+B. Accuracy Comparison with State-of-the-Art
+1) Evaluation at 224 × 224 Resolution: We evaluate the
+effectiveness of our method across five UFGIR datasets at
+a resolution of 224 × 224, as summarized in Tab. II. Our
+variants provide consistent improvements over the baseline,
+yielding gains between 13.5 points (ILA) and 27.4 points
+(SAW) in average accuracy across datasets. This highlights
+the effectiveness of incorporating hierarchical biases to address
+attention collapse.
+When combined with conventional adapters [21], the resulting ILA++ variant further improves performance, surpassing
+the previous state-of-the-art, FFVT [30], by an average of
+5.8 points. These results demonstrate the compatibility of the
+proposed module with existing PETL mechanisms.
+Incorporating the SAW stage for ILA++ leads to further
+accuracy gains, most notably a 12.1-point improvement on the
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+10
+
+TABLE III
+T OP -1 ACCURACY COMPARISON OF METHODS ON UFGIR DATASETS WITH IMAGE SIZE 448 × 448. Model* REPRESENTS ALL PARAMETERS , INCLUDING
+THE BACKBONE , WERE FINE - TUNED ; THOSE ROWS ARE TRANSCRIBED FROM [27] AND CARRY NO SEED DEVIATION . LR-BLP WAS NOT RUN AT THIS
+RESOLUTION . M ETHODS ARE GROUPED INTO : FT, PE C LASSIFIER , PEFGIR, GRPETL, ILA, SAW.
+Method
+
+Cotton
+
+SoyAgeing
+
+SoyGene
+
+SoyGlobal
+
+SoyLocal
+
+SIM-Tr* [58]
+CSDNet* [27]
+
+54.58
+57.92
+
+34.76
+75.39
+
+15.46
+70.82
+
+70.69
+56.3
+
+25
+46.17
+
+ViT B-16 [10]
+MPNC [55]
+IFA [56]
+
+39.03 ± 0.48
+43.89 ± 1.05
+44.58 ± 3.0
+
+48.61 ± 0.58
+40.43 ± 2.61
+56.01 ± 2.14
+
+21.31 ± 0.45
+20.22 ± 0.43
+33.09 ± 0.87
+
+24.97 ± 0.8
+25.79 ± 1.07
+35.82 ± 1.02
+
+28.72 ± 1.67
+27.94 ± 1.92
+29.22 ± 1.99
+
+TransFG [29]
+FFVT [30]
+CAL [57]
+RAMS [23]
+GLSim [51]
+
+51.67 ± 2.73
+51.94 ± 2.06
+44.03 ± 2.92
+38.47 ± 1.47
+45.7 ± 1.69
+
+57.54 ± 0.82
+69.93 ± 1.03
+51.16 ± 0.27
+50.73 ± 0.45
+56.58 ± 0.46
+
+38.79 ± 0.18
+49.97 ± 0.46
+23.03 ± 0.32
+25.83 ± 0.44
+33.04 ± 0.32
+
+45.35 ± 0.15
+47.7 ± 0.28
+34.98 ± 1.39
+25.17 ± 0.87
+39.85 ± 0.31
+
+38.06 ± 0.79
+42.22 ± 1.3
+31.61 ± 1.29
+29.67 ± 0.84
+29.95 ± 0.63
+
+VQT [40]
+VPT-S [13]
+VPT-D [13]
+ConvP [41]
+Adapter [21]
+
+50.97 ± 2.1
+38.19 ± 2.51
+43.19 ± 1.73
+48.33 ± 2.5
+48.19 ± 1.88
+
+65.65 ± 0.68
+49.12 ± 0.28
+60.76 ± 1.03
+60.18 ± 1.64
+73.31 ± 0.81
+
+36.8 ± 0.17
+27.43 ± 0.59
+38.28 ± 0.83
+53.43 ± 1.43
+57.04 ± 0.98
+
+33.99 ± 1.53
+27.37 ± 3.77
+36.83 ± 1.55
+45.13 ± 1.25
+47.27 ± 0.41
+
+36.33 ± 1.17
+28.39 ± 0.95
+25.28 ± 0.69
+34.22 ± 1.3
+36.83 ± 1.09
+
+ILA (Ours)
+ILA+ (Ours)
+ILA++ (Ours)
+
+51.94 ± 1.68
+53.33 ± 1.1
+55.42 ± 1.67
+
+66.32 ± 0.73
+68.79 ± 0.63
+75.0 ± 0.36
+
+44.65 ± 0.81
+52.65 ± 0.89
+62.19 ± 0.41
+
+46.9 ± 0.24
+48.29 ± 0.38
+58.14 ± 0.24
+
+43.56 ± 0.42
+46.56 ± 0.63
+50.83 ± 0.6
+
+SAW (Ours)
+
+55.42 ± 1.1
+
+79.65 ± 0.11
+
+70.53 ± 0.22
+
+64.02 ± 0.56
+
+58.33 ± 0.67
+
+TABLE IV
+T OP -1 ACCURACY COMPARISON OF METHODS ON S OYAGEING SUBSETS WITH IMAGE SIZE 448 × 448. Model* REPRESENTS ALL PARAMETERS ,
+INCLUDING THE BACKBONE , WERE FINE - TUNED . M ETHODS ARE GROUPED INTO : FT, PE C LASSIFIER , PEFGIR, GRPETL, ILA, SAW.
+Method
+
+SoyAgeR1
+
+SoyAgeR3
+
+SoyAgeR4
+
+SoyAgeR5
+
+SoyAgeR6
+
+SIM-Tr* [58]
+CSDNet* [27]
+
+69.9
+75.15
+
+73.23
+76.57
+
+73.13
+77.27
+
+73.94
+78.18
+
+63.23
+69.8
+
+ViT B-16 [10]
+MPNC [55]
+IFA [56]
+
+60.47 ± 0.21
+54.88 ± 1.37
+63.77 ± 2.89
+
+55.66 ± 0.91
+51.01 ± 2.8
+60.07 ± 2.53
+
+58.25 ± 0.56
+54.95 ± 0.53
+62.53 ± 3.85
+
+59.6 ± 0.1
+53.87 ± 1.74
+64.21 ± 1.81
+
+47.17 ± 0.52
+43.4 ± 1.49
+55.02 ± 4.74
+
+TransFG [29]
+FFVT [30]
+CAL [57]
+RAMS [23]
+GLSim [51]
+
+68.42 ± 0.21
+72.39 ± 0.73
+58.62 ± 0.31
+60.67 ± 1.29
+61.65 ± 0.77
+
+62.73 ± 0.44
+70.34 ± 0.84
+60.4 ± 1.37
+58.72 ± 0.29
+62.36 ± 0.36
+
+68.86 ± 1.02
+72.8 ± 2.56
+56.36 ± 1.24
+59.23 ± 0.59
+63.97 ± 0.56
+
+68.99 ± 0.0
+72.49 ± 0.47
+62.22 ± 2.52
+62.39 ± 1.12
+62.19 ± 0.32
+
+55.76 ± 0.88
+59.39 ± 1.03
+48.79 ± 1.84
+49.76 ± 0.71
+53.6 ± 0.38
+
+VQT [40]
+VPT-S [13]
+VPT-D [13]
+ConvP [41]
+Adapter [21]
+
+69.29 ± 1.82
+59.66 ± 0.93
+66.1 ± 3.95
+68.45 ± 1.76
+69.02 ± 0.31
+
+66.53 ± 1.13
+54.88 ± 0.31
+51.82 ± 3.75
+67.88 ± 0.66
+67.84 ± 1.39
+
+67.14 ± 0.85
+59.53 ± 2.97
+60.34 ± 2.35
+68.28 ± 0.63
+71.45 ± 0.67
+
+69.83 ± 1.37
+61.15 ± 0.46
+63.84 ± 1.05
+71.62 ± 0.93
+72.26 ± 1.32
+
+57.44 ± 2.13
+49.29 ± 0.44
+53.67 ± 1.76
+58.52 ± 0.91
+59.09 ± 2.93
+
+ILA (Ours)
+ILA+ (Ours)
+ILA++ (Ours)
+
+69.49 ± 0.56
+73.1 ± 1.0
+75.86 ± 0.1
+
+70.17 ± 0.56
+73.74 ± 1.06
+74.65 ± 0.71
+
+70.74 ± 0.38
+75.45 ± 0.86
+76.8 ± 0.86
+
+73.33 ± 0.53
+75.52 ± 1.31
+77.88 ± 0.44
+
+62.83 ± 0.56
+66.53 ± 0.65
+69.9 ± 0.66
+
+SAW (Ours)
+
+83.27 ± 0.25
+
+81.85 ± 0.29
+
+83.7 ± 0.92
+
+84.31 ± 0.31
+
+74.21 ± 1.23
+
+challenging SoyLocal dataset. Importantly, this enhancement
+is achieved without introducing any additional deployable
+parameters, indicating that a warmup stage for the PETL
+modules contributes significantly to better generalization in
+low-data regimes.
+2) Evaluation at 448 × 448 Resolution: To evaluate the
+effectiveness and scalability of our method across image sizes,
+we compare results across ten UFGIR datasets employing
+448 × 448 image size, shown in Tab. III and Tab. IV. Our
+variants consistently improve upon the baseline ViT, increasing
+
+average accuracy across datasets by 15.6 points (ILA) up
+to 29.2 points (SAW). This consolidates the advantages of
+incorporating hierarchical feature extraction to increase discriminative feature recognition in UFGIR tasks.
+The ILA++ variant which also employs intra-layer adapters
+[21] surpasses the previous best method in the PETL setting,
+FFVT [30], by 6.8 points of average accuracy across tasks.
+This further validates the synergy of our hierarchical biases
+with existing PETL modules.
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+11
+
+TABLE V
+W HAT THE PRETRAINED BACKBONE OFFERS PER DATASET, BEFORE ANY
+ADAPTATION . T RAIN COUNTS THE TRAIN SPLIT WITH VALIDATION HELD
+OUT, WHICH IS WHY IT IS SMALLER THAN THE TRAIN + VAL SPLIT THE
+RECOGNITION RUNS TRAIN ON (TAB . I). D EEP - LAYER CKA IS THE MEAN
+SIMILARITY BETWEEN ATTENTION LAYERS OVER THE DEEPEST THIRD OF
+THE ENCODER , SO A HIGHER VALUE MEANS THE LAYERS HAVE STOPPED
+DISTINGUISHING THEIR OUTPUTS . L OG ME IS COMPUTED ON THE SAME
+FROZEN FEATURES . B OTH GROW WITH THE NUMBER OF CLASSES , SO
+L OG ME IS COMPARABLE ONLY BETWEEN DATASETS OF SIMILAR
+GRANULARITY.
+
+Dataset
+
+Classes
+
+Train
+
+Deep-layer CKA
+224
+
+448
+
+LogME
+
+CUB-200
+
+200
+
+4794
+
+0.569
+
+0.561
+
+1.499
+
+Cotton
+SoyAgeR6
+SoyGene
+SoyAgeing
+SoyGlobal
+SoyAgeR3
+SoyAgeR5
+SoyAgeR4
+SoyAgeR1
+SoyLocal
+
+80
+198
+1110
+198
+1938
+198
+198
+198
+198
+200
+
+160
+792
+9562
+3960
+3876
+792
+792
+792
+792
+400
+
+0.717
+0.717
+0.723
+0.730
+0.730
+0.733
+0.733
+0.735
+0.735
+0.741
+
+0.727
+0.709
+0.729
+0.731
+0.723
+0.740
+0.733
+0.740
+0.738
+0.743
+
+0.775
+1.242
+2.095
+1.242
+2.366
+1.247
+1.246
+1.248
+1.256
+1.235
+
+TABLE VI
+T HE PROPOSED METHODS ON A S WIN -B BACKBONE AT 448 × 448,
+AGAINST PUBLISHED FULLY FINE - TUNED S WIN -B METHODS . O UR THREE
+COLUMNS FREEZE THE BACKBONE AND TRAIN ONLY THE INSERTED
+MODULES AND CLASSIFICATION HEAD (FZ TRAINS THE HEAD ALONE );
+EACH CELL IS THE MEAN AND STANDARD DEVIATION OVER THREE SEEDS .
+T HE PUBLISHED COLUMNS FINE - TUNE EVERY BACKBONE PARAMETER
+PER TASK AND ARE TRANSCRIBED FROM THEIR PAPERS .
+
+Frozen Swin-B (ours)
+Dataset
+
+FZ
+
++Adapter
+
++Adapter
++SAW
+
+CLE-ViT
+[26]
+
+CSDNet
+[27]
+
+GAEor
+[39]
+
+Cotton
+
+51.94
+±1.68
+63.91
+±0.47
+72.76
+±0.31
+69.23
+±0.25
+68.99
+±0.70
+70.64
+±0.71
+61.14
+±0.06
+55.40
+±0.10
+39.84
+±0.04
+45.44
+±0.19
+
+56.11
+±1.88
+77.31
+±0.39
+78.32
+±0.87
+77.58
+±1.05
+76.77
+±0.52
+76.73
+±0.77
+64.81
+±0.69
+69.29
+±2.83
+39.07
+±10.46
+50.17
+±1.09
+
+61.39
+±2.14
+82.36
+±0.20
+83.84
+±0.10
+83.91
+±0.15
+82.76
+±0.32
+84.21
+±0.85
+73.91
+±0.35
+75.32
+±0.31
+64.61
+±0.38
+56.39
+±0.67
+
+63.33
+
+67.92
+
+71.3
+
+82.14
+
+83.17
+
+86.4
+
+80.81
+
+83.84
+
+85.7
+
+83.33
+
+85.15
+
+88.8
+
+84.24
+
+85.15
+
+90.2
+
+86.36
+
+84.85
+
+88.9
+
+75.96
+
+76.87
+
+77.9
+
+78.50
+
+86.86
+
+88.7
+
+75.21
+
+76.19
+
+81.2
+
+47.17
+
+60.50
+
+62.5
+
+59.93
+
+66.62
+
+74.87
+
+75.71
+
+79.05
+
+82.16
+
+SoyAgeing
+SoyAgeR1
+SoyAgeR3
+SoyAgeR4
+SoyAgeR5
+SoyAgeR6
+SoyGene
+SoyGlobal
+SoyLocal
+
+After incorporating the SAW stage our model achieves the
+best average results across all ten datasets among the compared
+methods, surpassing the strongest fully fine-tuned method in
+our comparison, CSDNet’s ViT-B variant [27], by 5.1 points.
+Fully fine-tuned Swin-B models sit higher still — CSDNet’s
+Swin-B variant and the recent GAEor [39] — at one to
+two orders of magnitude more task-specific parameters; they
+mark the accuracy ceiling of full fine-tuning rather than a
+like-for-like comparison. Full fine-tuning still leads on three
+datasets: SIM-Trans on SoyGlobal (70.69 against our 64.02)
+and CSDNet on Cotton (57.92 against 55.42) and SoyGene
+(70.82 against 70.53). Our model reaches its average while
+deploying 123× fewer parameters across the ten datasets —
+7.0 M of task-specific modules and heads against ten fully
+fine-tuned CSDNet backbones — since their approach adapts
+the whole backbone for each task. Part of SAW’s margin
+reflects the pooled warmup corpus, which no competitor sees:
+warmed up on the target dataset alone, SAW still gains 4.4
+and 7.1 points over ILA++ on the two datasets probed in
+Tab. XIII, with pooling contributing the remaining 1.7 and 4.9
+points there. This highlights the strengths behind the proposed
+semantic warmup with cross-image augmentations for efficient
+adaptation.
+Table VI makes the Swin comparison direct by deploying
+our methods on the same Swin-B backbone at 448 × 448,
+frozen, over three seeds. The ladder transfers: the warmup
+adds 8.3 points over the adapter baseline and 14.9 over the
+frozen head on average, reaching 74.87% — above our ViT
+average of 73.5% — and it stabilizes the one dataset where
+the adapter falls below the frozen head (SoyGlobal, 39.07%
+with a 10.46 spread across seeds, restored to 64.61% with a
+0.38 spread). Against full fine-tuning of the same backbone,
+our result sits 0.8 points below CLE-ViT while topping it on
+four of the ten datasets, and CSDNet and GAEor keep 4.2-
+
+Fully fine-tuned Swin-B
+
+Average
+
+and 7.3-point average leads while adapting every backbone
+parameter per task.
+Additionally, these results demonstrate the scalability across
+image resolutions of our proposed ILA variants. Our variants
+improve the classification accuracy by at least 6.9 and up to
+8.5 points on average across the ten datasets by increasing the
+resolution from 224 to 448. This exceeds the mean improvement of 5.2 points across the rest of the methods, although
+individual baselines come close (VPT-Deep gains 8.4 points).
+These results combined with the reduced computational cost
+of our method showcase the potential of our framework for
+fine-grained tasks that require high-resolution.
+
+C. Accuracy vs Computational Cost
+We evaluate the trade-off between accuracy and computational cost across various PETL methods. In particular, we
+compare the average top-1 accuracy across 10 UFGIR datasets
+versus the computational cost in terms of task-specific trainable parameters, inference FLOPs and inference throughput.
+We visualize these trade-offs in Fig. 8.
+First, we highlight how the proposed ILA variants consistently increase the throughput and reduce the FLOPs compared
+to other methods due to the reduction in processed tokens as a
+consequence of the spatial downsampling. We also remark that
+incorporating the Semantic Adaptation Warmup (SAW) stage
+into ILA++ improves accuracy by 5.9% without increasing
+task trainable parameters or inference cost. The warmup does
+add training compute: 100 extra epochs, run once and shared
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+12
+
+Fig. 8. Accuracy vs inference floating-point operations (FLOPs in log-scale, on the left) and throughput (images per second, on the right) for various PETL
+methods. The y-axis indicates average top-1 accuracy across 10 UFGIR datasets, the x-axis shows inference floating-point operations (FLOPs) in log scale,
+and the marker size reflects the number of task-specific trainable parameters.
+
+by every task. This margin is not a longer-training effect.
+Training ILA++ for 150 epochs per task, the same budget
+spent without the warmup, raises its ten-dataset average from
+67.7% to 69.2% over one seed, still 4.3 points short of SAW’s
+73.5%.
+The previous best PETL method, FFVT, achieves an average
+accuracy of 60.9% while SAW reaches 73.5%, with 8%
+fewer FLOPs, 40% higher throughput, and 93% fewer trained
+parameters per task. Additionally, while the previous state-ofthe-art, CSDNet, achieves a competitive accuracy of 68.4%,
+it deploys 123× more parameters across the ten datasets
+since all backbone parameters are fine-tuned per task. Overall,
+these results demonstrate the effectiveness of the proposed
+framework to improve recognition performance while reducing
+processing costs in low-resource scenarios.
+
+TABLE VII
+A LTERNATIVE PRETRAINED BACKBONES AND EXTENDED - PRETRAINING
+STRATEGIES , ALL WITH PARAMETER - EFFICIENT ADAPTATION , OVER ALL
+TEN DATASETS AT 224 × 224 IMAGE SIZE . E ACH CELL IS THE MEAN AND
+STANDARD DEVIATION OF TOP -1 ACCURACY OVER THREE SEEDS .
+E X PL O RA’ S DEVIATION ON S OY G LOBAL IS LARGE BECAUSE ONE OF ITS
+THREE SEEDS COLLAPSED TO 5.52 AGAINST 28.17 AND 27.11; IT IS
+REPORTED AS MEASURED .
+
+Dataset
+
+The closest prior art to the warmup is ExPLoRA [62], which
+also inserts an extended pretraining stage on the target domain
+before parameter-efficient fine-tuning. It differs in three ways
+that matter here: it unfreezes one or two transformer blocks
+where we train adapters only, it uses a self-supervised reconstruction or distillation objective where we use a supervised
+contrastive one, and it augments generically where DAMAS
+swaps discriminative regions between images of the same
+class. The ExPLoRA runs here extend pretraining per dataset
+— LoRA of rank 8 on the attention projections, 300 epochs
+of masked-autoencoder reconstruction from the released MAE
+checkpoint — and then fine-tune the same LoRA for 100
+epochs at a learning rate of 10−3 over three seeds. Table VII
+compares them on all ten datasets, alongside three alternative
+pretrained backbones adapted the same way.
+Extended pretraining helps: ExPLoRA raises the MAE
+backbone from 22.51% to 50.11% on average and overtakes
+both CLIP and DINOv2. It remains below our result on
+every dataset, by 15.8 points on average. The warmup leads
+every row except Cotton, where the DINOv2 backbone is
+
+CLIP
+[60]
+
+DINOv2
+[61]
+
+ExPLoRA
+[62]
+
+SAW
+(Ours)
+
+51.11
+34.58±1.67 50.28±1.05
+±2.55
+SoyAgeing 18.37±0.06 44.55±0.30 53.61±0.40 65.39±0.15 70.18 ± 0.44
+SoyAgeR1 36.16±0.61 54.78±0.72 60.44±1.01 60.13±0.76 77.41 ± 0.35
+SoyAgeR3 32.22±0.63 53.77±0.76 58.38±0.27 58.52±1.08 75.35 ± 0.71
+SoyAgeR4 32.66±0.56 48.45±0.42 58.32±0.25 58.89±0.30 78.01 ± 0.85
+SoyAgeR5 30.51±0.10 51.58±0.25 57.31±1.00 62.46±0.82 78.18 ± 0.44
+SoyAgeR6 26.53±0.51 42.96±0.72 49.09±0.40 49.70±0.36 66.77 ± 1.05
+SoyGene 12.15±0.10 35.73±0.27 39.03±0.21 58.85±0.38 59.85 ± 0.17
+SoyGlobal 6.27 ± 0.09 17.06±0.11 23.15±0.20 20.27 ± 49.62 ± 0.41
+12.78
+SoyLocal 17.44±0.67 30.28±0.63 33.22±0.10 32.33±0.17 53.33 ± 0.29
+Cotton
+
+Average
+
+D. Comparison with Alternative Pretraining Strategies
+
+MAE
+[59]
+
+12.78±0.87 36.67±0.42
+
+22.51
+
+41.58
+
+48.37
+
+50.11
+
+65.90
+
+Backbones: MAE, CLIP and ExPLoRA use ViT-B/16, DINOv2 uses
+ViT-B/14. Pretraining corpora are MAE, LAION-2B, LVD-142M, MAE
+with extended pretraining, and ImageNet-21k respectively.
+
+the strongest entry. The comparison is not like-for-like, since
+the backbones and pretraining corpora differ by construction
+— that is what the table varies — so it should be read as
+evidence that the warmup is competitive with a 2025 extendedpretraining method rather than as a controlled ablation of one
+against the other.
+
+E. Ablations
+1) Design of Residual Spatial Downsampling (RSDS)
+Branch: We perform ablation experiments to evaluate the
+importance of the Residual Spatial Downsampling (RSDS)
+branch in our ILA++ framework. We observe that completely
+removing the RSDS branch results in a collapsed representation, with accuracy dropping to near-zero levels, despite
+the presence of both adapters and ILA. This confirms that
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+13
+
+the RSDS branch residual signal propagation is essential for
+enabling the overall architecture to learn.
+Second, we examine the impact of removing spatial downsampling from the RSDS path by padding both the main and
+residual branches to match dimensions. This configuration fails
+to improve upon the baseline with adapters, highlighting the
+need for inductive biases in the form of hierarchical feature
+extraction.
+Finally, we assess various design choices for the RSDS
+operator. All alternatives fail to improve upon the adapter
+baseline. In particular, depth-wise convolution with Xavier
+initialization performs poorly, showing the importance of
+initialization for proper residual propagation. In contrast, our
+default design incorporating depth-wise convolution initialized
+to near one values consistently outperforms all other variants, surpassing the adapter baseline by 8.5 and 8.0 points,
+respectively. This confirms that a learnable, identity-preserving
+initialization is essential for smoothly bridging the spatial mismatch introduced by downsampling while preserving feature
+integrity.
+These results validate the design choices made in the RSDS
+as a necessary component within ILA, enabling the inclusion
+of hierarchical biases for feature extraction in UFGIR.
+TABLE VIII
+A BLATION ON THE DESIGN OF THE R ESIDUAL S PATIAL D OWNSAMPLING
+(RSDS) BRANCH . R ESULTS SHOW TOP -1 ACCURACY (%).
+Model Variant
+
+SoyGlobal (%)
+
+SoyLocal (%)
+
+Baseline Models
+ViT B-16
+Adapter [21]
+
+17.9 ± 0.4
+35.0 ± 1.2
+
+28.8 ± 1.0
+33.3 ± 1.3
+
+Without RSDS or Downsampling
+ILA++ without RSDS Branch
+ILA++ (no Downsampling)
+
+2.2 ± 0.9
+34.3 ± 0.6
+
+6.6 ± 1.4
+33.1 ± 1.0
+
+Operator for RSDS with ILA++
+Average Pooling
+Traditional Convolution
+Depth-Wise Conv. (DWC)
+DWC with Near-One Init.
+
+29.1 ± 0.4
+34.9 ± 1.4
+29.2 ± 1.8
+43.5 ± 0.2
+
+31.2 ± 1.3
+27.8 ± 5.6
+25.2 ± 2.0
+41.3 ± 1.0
+
+TABLE X
+A BLATION ON THE CONVOLUTION KERNEL SIZE IN THE ILA MODULE .
+R ESULTS SHOW TOP -1 ACCURACY (%), ALONG WITH FLOP S AND
+TASK - SPECIFIC TRAINABLE PARAMETERS (TSP). T HE KERNEL -7
+CONFIGURATION WAS NOT RUN ON S OY G LOBAL .
+Model
+
+SoyGlob (%)
+
+SoyLoc (%)
+
+FLOPs (109 )
+
+TSP (106 )
+
+Adapter
+
+35.0 ± 1.2
+
+33.3 ± 1.3
+
+17.6
+
+0.47
+
+3 (Def.)
+5
+7
+
+43.5 ± 0.2
+42.7 ± 0.2
+–
+
+41.3 ± 1.0
+43.2 ± 0.3
+42.7 ± 0.3
+
+13.14
+9.95
+7.97
+
+0.51
+0.53
+0.57
+
+TABLE XI
+A BLATION ON THE IMPACT OF THE BACKBONE CHOICE . ACCURACY ON
+S OY G LOBAL AND S OY L OCAL IS REPORTED FOR EACH BACKBONE
+WITHOUT PETL MODULES (BASELINE ROWS ) AND WITH THE PROPOSED
+ILA++ AND SAW.
+Model
+
+SoyGlobal (%)
+
+SoyLocal (%)
+
+Baseline (DeiT) [63]
+ILA++ (DeiT)
+SAW (DeiT)
+
+24.8 ± 0.1
+43.7 ± 0.4
+50.5 ± 0.1
+
+37.4 ± 0.5
+46.4 ± 0.8
+53.1 ± 1.8
+
+Baseline (DeiT3) [64]
+ILA++ (DeiT3)
+SAW (DeiT3)
+
+15.8 ± 0.2
+36.3 ± 1.2
+47.3 ± 0.3
+
+21.7 ± 0.6
+36.8 ± 2.1
+42.8 ± 0.8
+
+TABLE XII
+A BLATION ON THE TYPE OF DATA AUGMENTATION USED IN SAW STAGE .
+Model
+
+SoyGlobal (%)
+
+SoyLocal (%)
+
+ILA++
+
+43.5 ± 0.2
+
+41.3 ± 1.0
+
+Generic (crop, jitter, blur) [34]
+
+33.4 ± 0.3
+
+33.7 ± 0.2
+
+Data-aware crop (Zoom in)
+Data-aware masking (Zero out)
+Data-aware mix (Swap regions)
+
+42.9 ± 0.1
+39.9 ± 1.1
+49.6 ± 0.4
+
+42.3 ± 0.2
+44.4 ± 0.4
+53.3 ± 0.3
+
+TABLE XIII
+A BLATION ON THE NUMBER OF DATASETS USED DURING SAW STAGE .
+Model
+
+SoyGlobal (%)
+
+SoyLocal (%)
+
+ILA++
+
+43.5 ± 0.2
+
+41.3 ± 1.0
+
+Single-Dataset DAMAS
+Combination-Dataset DAMAS
+
+47.9 ± 0.6
+49.6 ± 0.4
+
+48.4 ± 1.0
+53.3 ± 0.3
+
+TABLE XIV
+A BLATION ON THE LOSS FUNCTION USED IN SAW STAGE .
+
+TABLE IX
+A BLATION ON THE LAYERS FOR INSERTING DOWNSAMPLING ILA
+MODULES . R ESULTS SHOW TOP -1 ACCURACY (%) ALONG WITH FLOP S .
+SoyGlobal (%)
+
+SoyLocal (%)
+
+FLOPs (109 )
+
+Adapter [21]
+
+35.0 ± 1.2
+
+33.3 ± 1.3
+
+17.6
+
+2&4
+3&6
+4 & 8 (Def.)
+5 & 10
+6 & 12
+
+41.5 ± 0.4
+41.7 ± 0.4
+43.5 ± 0.2
+42.9 ± 0.2
+42.4 ± 0.4
+
+38.2 ± 1.1
+38.3 ± 1.2
+41.3 ± 1.0
+43.6 ± 1.1
+41.1 ± 1.0
+
+11.0
+12.1
+13.1
+14.2
+15.3
+
+Model
+
+2) Impact of ILA Insertion Position: We investigate the
+effect of ILA placement within the backbone by evaluating
+ILA++ with downsampling adapters inserted after various
+layer pairs in Tab. IX. All placements improve mean accuracy
+by at least 5.7 and up to 9.1 points, while reducing FLOPs
+
+Model
+
+SoyGlobal (%)
+
+SoyLocal (%)
+
+ILA++
+
+43.5 ± 0.2
+
+41.3 ± 1.0
+
+SelfCon [37]:
+SupCon (Def.)
+
+49.9 ± 0.2
+49.6 ± 0.4
+
+53.2 ± 0.5
+53.3 ± 0.3
+
+to as little as 62% of the original values, highlighting the
+effectiveness of the proposed ILA in improving accuracy
+by introducing hierarchical extraction while reducing costs.
+Although placing adapters deeper (e.g., after layers 5 and
+10) yields the overall highest accuracy, it also requires higher
+FLOPs. Given this trade-off, we adopt the 4 & 8 configuration
+as the default for ILA++, offering a strong balance between
+efficiency and performance.
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+3) Impact of ILA Convolution Kernel Size: We study the
+effects of the convolution kernel size within the ILA main and
+residual branches, which directly controls the downsampling
+rate in Tab. X. While employing a larger kernel size (e.g.,
+kernel size 7) can improve accuracy in certain datasets and
+reduce FLOPs due to the stronger downsampling ratio, the
+kernel-7 configuration was not run on SoyGlobal, so its
+behavior there is unmeasured. We opt for kernel size 3 due to
+its stable training and balanced performance.
+4) Impact of the Backbone Choice: To assess the effectiveness of the proposed methods across backbones, we deploy
+them on DeiT [63] and DeiT3 [64] backbones in Tab. XI.
+Results indicate that ILA++ and SAW consistently improve
+upon the baseline regardless of the backbone choice. We
+highlight how SAW can boost accuracy by up to 31.5 points
+when combined with the DeiT3 backbone on the challenging
+SoyGlobal dataset. These results demonstrate the effectiveness
+of the proposed hierarchical feature extraction and semantic
+warmup stage as robust techniques to distinguish ultra-fine
+distinctions in parameter-efficient settings.
+
+14
+
+TABLE XV
+T HE WARMUP APPLIED TO A PLAIN ADAPTER , WITH NO INTER - LAYER
+MODULE ANYWHERE IN THE NETWORK . B OTH COLUMNS ARE TRAINED
+IDENTICALLY AT 224 × 224 IMAGE SIZE WITH A FIXED LEARNING RATE
+OF 0.1 OVER THREE SEEDS , AND DIFFER ONLY IN WHETHER THE WARMUP
+CHECKPOINT IS LOADED . E ACH CELL IS THE MEAN AND STANDARD
+DEVIATION OVER SEEDS ; THE GAIN IS THE DIFFERENCE OF THE MEAN
+ACCURACIES .
+Dataset
+
+Adapter
+
+Adapter +
+SAW
+
+Gain
+
+Cotton
+
+42.08 ±
+1.67
+64.51 ±
+0.75
+64.95 ±
+0.46
+64.85 ±
+0.00
+64.38 ±
+1.00
+67.81 ±
+1.09
+53.23 ±
+1.27
+45.12 ±
+0.50
+33.80 ±
+0.33
+33.44 ±
+0.51
+
+51.67 ±
+1.82
+67.97 ±
+0.22
+71.41 ±
+0.97
+70.84 ±
+0.86
+73.17 ±
+1.25
+75.45 ±
+0.63
+61.35 ±
+0.12
+55.18 ±
+0.28
+46.16 ±
+0.74
+48.78 ±
+2.69
+
++9.59
+
+53.42
+
+62.20
+
+SoyAgeing
+SoyAgeR1
+SoyAgeR3
+SoyAgeR4
+SoyAgeR5
+SoyAgeR6
+SoyGene
+SoyGlobal
+
+5) The Warmup Without ILA: Every warmup run reported
+so far is built on ILA, so the warmup could be read as a
+property of that module rather than a method in its own right.
+Table XV settles this by applying it to a plain adapter with
+no inter-layer module anywhere in the network. Average top1 accuracy rises from 53.42% to 62.20%, a gain of 8.78
+points that holds on all ten datasets and ranges from 3.46 on
+SoyAgeing to 15.34 on SoyLocal. The two arms are trained
+identically at a fixed learning rate over three seeds, and differ
+only in whether the warmup checkpoint is loaded.
+The gain is larger than the 6.7 points the warmup adds on
+top of ILA at the same 224 × 224 resolution, so the two are
+complementary rather than one depending on the other. This is
+what the framing in Sec. V-A predicts: the warmup addresses
+a mismatch between the pretrained representation and cultivar
+recognition, which is a property of the backbone and not of
+the module placed on top of it.
+6) Impact of Data Augmentation Strategy in SAW: We
+compare data augmentation strategies to produce positives for
+the contrastive loss function during the SAW stage in Tab. XII.
+First, we remark how incorporating generic data augmentation
+in the form of random cropping, color jittering, greyscale
+or blur, as used in previous works [34], [35] can lead to
+a significant performance degradation. This is because these
+generic augmentations do not take into consideration the subtle
+distinctions required for distinguishing fine-grained categories.
+Second, incorporating data-aware cropping or masking [27],
+[57], where an image region is zoomed in or substituted with
+a value based on an attention mechanism, can be beneficial
+for datasets with extreme data scarcity such as SoyLocal.
+However, its benefits are limited compared to cross-image
+data augmentation [38], [65] where attentive regions of two
+images are swapped. This is because the additional diversity
+
+SoyLocal
+Average
+
++3.46
++6.46
++5.99
++8.79
++7.64
++8.12
++10.06
++12.36
++15.34
++8.78
+
+introduced through swapping discriminative details between
+two images from the same category allows the network to
+directly learn from the large intra-class diversity observed in
+UFGIR tasks.
+7) Impact of Data Diversity in SAW Stage: We verify the
+effect of data diversity during the warmup stage in Tab. XIII.
+Our results show that incorporating the proposed DAMAS
+significantly boosts the classification performance regardless
+of if we warmup using a single-dataset before fine-tuning on
+the same dataset or if we warmup using a combination of all
+datasets before fine-tuning on each dataset individually. However, increasing data diversity by combining multiple datasets
+is particularly effective at boosting performance on datasets
+with very limited number of samples, such as SoyLocal,
+where the proposed method employing a combined dataset can
+further boost accuracy by 4.9%. This shows the importance of
+data diversity during the warmup stage.
+8) Impact of Loss Function used in SAW Stage: We
+compare loss functions used during the adaptation stage in
+Tab. XIV. SelfCon [37] incorporates representations from
+intermediate layers of the network as additional positives for
+the contrastive loss, resulting in a small increase in performance in SoyGlobal. However, processing these additional
+positives increase the overall training cost so we opt to employ
+SupCon [35], which employs only augmentations and sameclass images as positives, due its balance between accuracy
+and cost.
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+VI. C ONCLUSION
+This work presents a novel framework for parameterefficient ultra-fine-grained image recognition (UFGIR) that
+combines a downsampling Inter-Layer Adapter (ILA) module
+with Semantic Adaptation Warmup (SAW) stage. The ILA
+module introduces inductive bias in the form of hierarchical
+feature extraction for frozen Vision Transformers, significantly
+reducing deployment parameters and inference cost. To address the semantic gap between generic pretraining and finegrained tasks we proposed SAW, an initialization strategy
+that employs a novel Dual-Attention-driven Mix Augmentation
+SupCon (DAMAS) objective to align adapter features with the
+frozen backbone in a data-efficient manner.
+The proposed framework incorporating ILA and SAW
+achieves significant accuracy gains across ten UFGIR benchmarks while reducing inference cost and parameter overhead
+compared to existing methods. These results highlight the
+effectiveness of combining inductive biases with task-specific
+pretraining for parameter-efficient adaptation in scenarios with
+limited data.
+
+R EFERENCES
+[1] E. A. Rios, F. Oyerinde, M.-C. Hu, and B.-C. Lai, “Down-Sampling
+Inter-Layer Adapter for Parameter and Computation Efficient UltraFine-Grained Image Recognition,” in Computer Vision – ECCV 2024
+Workshops. Springer Nature Switzerland, Sep. 2024, arXiv:2409.11051
+[cs].
+[2] X. Yu, Y. Zhao, Y. Gao, X. Yuan, and S. Xiong, “Benchmark Platform
+for Ultra-Fine-Grained Visual Categorization Beyond Human Performance,” in 2021 IEEE/CVF International Conference on Computer
+Vision (ICCV), Oct. 2021, pp. 10 265–10 275, iSSN: 2380-7504.
+[3] M. A. Rahman, A. A. Khan, M. M. Hasan, M. S. Rahman, and M. T.
+Habib, “Deep Learning Modeling for Potato Breed Recognition,” IEEE
+Transactions on AgriFood Electronics, vol. 2, no. 2, pp. 419–427, Sep.
+2024.
+[4] A. Kumar, N. Sapkal, A. Miglani, D. Kumar, and P. K. Kankar, “Novel
+Deep Learning Architectures for Soybean Kernel Defect Classification,”
+IEEE Transactions on AgriFood Electronics, pp. 1–8, 2026, early access;
+volume and issue not yet assigned.
+[5] R. Dulal, L. Zheng, and M. A. Kabir, “MHAFF: Multihead Attention
+Feature Fusion of CNN and Transformer for Cattle Identification,” IEEE
+Transactions on AgriFood Electronics, vol. 3, no. 2, pp. 506–517, Sep.
+2025, preprint: arXiv:2501.05209.
+[6] P. S. Thakur, S. Chaturvedi, P. Khanna, T. Sheorey, and A. Ojha, “RealTime Plant Disease Identification: Fusion of Vision Transformer and
+Conditional Convolutional Network With C3GAN-Based Data Augmentation,” IEEE Transactions on AgriFood Electronics, vol. 2, no. 2, pp.
+576–586, Sep. 2024.
+[7] M. A. Shirzi and M. R. Kermani, “Adaptive Feature-Based Plant
+Recognition,” IEEE Transactions on AgriFood Electronics, vol. 2, no. 2,
+pp. 335–346, Sep. 2024.
+[8] M. Wang, P. Zhao, X. Lu, F. Min, and X. Wang, “Fine-Grained Visual
+Categorization: A Spatial–Frequency Feature Fusion Perspective,” IEEE
+Transactions on Circuits and Systems for Video Technology, vol. 33,
+no. 6, pp. 2798–2812, Jun. 2023.
+[9] R. Ji, J. Li, L. Zhang, J. Liu, and Y. Wu, “Dual Transformer With
+Multi-Grained Assembly for Fine-Grained Visual Classification,” IEEE
+Transactions on Circuits and Systems for Video Technology, vol. 33,
+no. 9, pp. 5009–5021, Sep. 2023.
+[10] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai,
+T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly,
+J. Uszkoreit, and N. Houlsby, “An Image is Worth 16x16 Words:
+Transformers for Image Recognition at Scale,” in Proceedings of the
+International Conference on Learning Representations, Oct. 2020.
+
+15
+
+[11] S. Kornblith, M. Norouzi, H. Lee, and G. Hinton, “Similarity of
+Neural Network Representations Revisited,” in Proceedings of the 36th
+International Conference on Machine Learning. PMLR, May 2019,
+pp. 3519–3529, iSSN: 2640-3498.
+[12] K. You, Y. Liu, J. Wang, and M. Long, “LogME: Practical Assessment
+of Pre-trained Models for Transfer Learning,” in Proceedings of the 38th
+International Conference on Machine Learning. PMLR, Jul. 2021, pp.
+12 133–12 143.
+[13] M. Jia, L. Tang, B.-C. Chen, C. Cardie, S. Belongie, B. Hariharan,
+and S.-N. Lim, “Visual Prompt Tuning,” in Computer Vision – ECCV
+2022: 17th European Conference, Tel Aviv, Israel, October 23–27, 2022,
+Proceedings, Part XXXIII. Berlin, Heidelberg: Springer-Verlag, Oct.
+2022, pp. 709–727.
+[14] X. Nie, B. Ni, J. Chang, G. Meng, C. Huo, S. Xiang, and Q. Tian, “ProTuning: Unified Prompt Tuning for Vision Tasks,” IEEE Transactions
+on Circuits and Systems for Video Technology, vol. 34, no. 6, pp. 4653–
+4667, Jun. 2024.
+[15] J. Chen, G. Wu, H. Li, J. Chen, W. Zhang, W.-S. Zheng, and R. Wang,
+“DAT: Dual-Branch Adapter-Tuning for Few-Shot Recognition,” IEEE
+Transactions on Circuits and Systems for Video Technology, vol. 35,
+no. 7, pp. 7143–7154, Jul. 2025.
+[16] T. Chen, Z. Zhang, Y. Cheng, A. Awadallah, and Z. Wang, “The Principle
+of Diversity: Training Stronger Vision Transformers Calls for Reducing
+All Levels of Redundancy,” in 2022 IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR). New Orleans, LA, USA: IEEE,
+Jun. 2022, pp. 12 010–12 020.
+[17] P. Wang, W. Zheng, T. Chen, and Z. Wang, “Anti-Oversmoothing in
+Deep Vision Transformers via the Fourier Domain Analysis: From
+Theory to Practice,” in Proceedings of the International Conference on
+Learning Representations, Oct. 2021.
+[18] J. Bai, L. Yuan, S.-T. Xia, S. Yan, Z. Li, and W. Liu, “Improving Vision
+Transformers by Revisiting High-Frequency Components,” in Computer
+Vision – ECCV 2022: 17th European Conference, Tel Aviv, Israel,
+October 23–27, 2022, Proceedings, Part XXIV. Berlin, Heidelberg:
+Springer-Verlag, Oct. 2022, pp. 1–18.
+[19] D. Zhou, B. Kang, X. Jin, L. Yang, X. Lian, Z. Jiang, Q. Hou, and
+J. Feng, “DeepViT: Towards Deeper Vision Transformer,” Apr. 2021,
+arXiv:2103.11886 [cs].
+[20] R. Geirhos, J.-H. Jacobsen, C. Michaelis, R. Zemel, W. Brendel,
+M. Bethge, and F. A. Wichmann, “Shortcut learning in deep neural
+networks,” Nat Mach Intell, vol. 2, no. 11, pp. 665–673, Nov. 2020,
+publisher: Nature Publishing Group.
+[21] N. Houlsby, A. Giurgiu, S. Jastrzebski, B. Morrone, Q. D. Laroussilhe,
+A. Gesmundo, M. Attariyan, and S. Gelly, “Parameter-Efficient Transfer
+Learning for NLP,” in Proceedings of the 36th International Conference
+on Machine Learning. PMLR, May 2019, pp. 2790–2799, iSSN: 26403498.
+[22] S. Abnar and W. Zuidema, “Quantifying Attention Flow in Transformers,” in Proceedings of the 58th Annual Meeting of the Association
+for Computational Linguistics, D. Jurafsky, J. Chai, N. Schluter, and
+J. Tetreault, Eds. Online: Association for Computational Linguistics,
+Jul. 2020, pp. 4190–4197.
+[23] Y. Hu, X. Jin, Y. Zhang, H. Hong, J. Zhang, Y. He, and H. Xue, “RAMSTrans: Recurrent Attention Multi-scale Transformer for Fine-grained
+Image Recognition,” in Proceedings of the 29th ACM International
+Conference on Multimedia, ser. MM ’21.
+New York, NY, USA:
+Association for Computing Machinery, Oct. 2021, pp. 4239–4248.
+[24] X. Liu, L. Wang, and X. Han, “Transformer with peak suppression and
+knowledge guidance for fine-grained image recognition,” Neurocomputing, vol. 492, pp. 137–149, Jul. 2022.
+[25] X. Yu, J. Wang, Y. Zhao, and Y. Gao, “Mix-ViT: Mixing attentive
+vision transformer for ultra-fine-grained visual categorization,” Pattern
+Recognition, vol. 135, p. 109131, Mar. 2023.
+[26] X. Yu, J. Wang, and Y. Gao, “CLE-ViT: Contrastive Learning Encoded
+Transformer for Ultra-Fine-Grained Visual Categorization,” in Proceedings of the Thirty-Second International Joint Conference on Artificial
+Intelligence. Macau, SAR China: International Joint Conferences on
+Artificial Intelligence Organization, Aug. 2023, pp. 4531–4539.
+[27] Z. Fang, X. Jiang, H. Tang, and Z. Li, “Learning Contrastive SelfDistillation for Ultra-Fine-Grained Visual Categorization Targeting Limited Samples,” IEEE Transactions on Circuits and Systems for Video
+Technology, vol. 34, no. 8, pp. 7135–7148, Aug. 2024.
+[28] L. Scheibenreif, M. Mommert, and D. Borth, “Parameter Efficient SelfSupervised Geospatial Domain Adaptation,” in 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). Seattle,
+WA, USA: IEEE, Jun. 2024, pp. 27 841–27 851.
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+[29] J. He, J.-N. Chen, S. Liu, A. Kortylewski, C. Yang, Y. Bai, and C. Wang,
+“TransFG: A Transformer Architecture for Fine-Grained Recognition,”
+in Proceedings of the First MiniCon Conference, Feb. 2022.
+[30] J. Wang, X. Yu, and Y. Gao, “Feature Fusion Vision Transformer
+for Fine-Grained Visual Categorization,” in British Machine Vision
+Conference (BMVC), Jul. 2021, arXiv: 2107.02341.
+[31] X. Yu, Y. Zhao, Y. Gao, and S. Xiong, “MaskCOV: A random mask
+covariance network for ultra-fine-grained visual categorization,” Pattern
+Recognition, vol. 119, p. 108067, Nov. 2021.
+[32] X. Yu, Y. Zhao, and Y. Gao, “SPARE: Self-supervised part erasing for
+ultra-fine-grained visual categorization,” Pattern Recognition, vol. 128,
+p. 108691, Aug. 2022.
+[33] X. Yu, Y. Zhao, Y. Gao, S. Xiong, and X. Yuan, “Patchy Image
+Structure Classification Using Multi-Orientation Region Transform,” in
+Proceedings of the AAAI Conference on Artificial Intelligence, vol. 34,
+Apr. 2020, pp. 12 741–12 748, number: 07.
+[34] T. Chen, S. Kornblith, M. Norouzi, and G. Hinton, “A Simple Framework for Contrastive Learning of Visual Representations,” in Proceedings of the 37th International Conference on Machine Learning. PMLR,
+Nov. 2020, pp. 1597–1607, iSSN: 2640-3498.
+[35] P. Khosla, P. Teterwak, C. Wang, A. Sarna, Y. Tian, P. Isola,
+A. Maschinot, C. Liu, and D. Krishnan, “Supervised contrastive learning,” in Proceedings of the 34th International Conference on Neural
+Information Processing Systems, ser. NIPS ’20. Red Hook, NY, USA:
+Curran Associates Inc., Dec. 2020, pp. 18 661–18 673.
+[36] Y.-H. Cao, H. Yu, and J. Wu, “Training Vision Transformers
+with only 2040 Images,” in Computer Vision – ECCV 2022, S. Avidan,
+G. Brostow, M. Cissé, G. M. Farinella, and T. Hassner, Eds. Cham:
+Springer Nature Switzerland, 2022, pp. 220–237.
+[37] S. Bae, S. Kim, J. Ko, G. Lee, S. Noh, and S.-Y. Yun, “Self-contrastive
+learning: single-viewed supervised contrastive framework using subnetwork,” in Proceedings of the Thirty-Seventh AAAI Conference on Artificial Intelligence and Thirty-Fifth Conference on Innovative Applications of Artificial Intelligence and Thirteenth Symposium on Educational
+Advances in Artificial Intelligence, ser. AAAI’23/IAAI’23/EAAI’23,
+vol. 37. AAAI Press, Feb. 2023, pp. 197–205.
+[38] S. Yun, D. Han, S. Chun, S. J. Oh, Y. Yoo, and J. Choe, “CutMix:
+Regularization Strategy to Train Strong Classifiers With Localizable
+Features,” in 2019 IEEE/CVF International Conference on Computer
+Vision (ICCV). Seoul, Korea (South): IEEE, Oct. 2019, pp. 6022–6031.
+[39] S. Wang, Y. Luo, Z. Wang, H. Li, Z. Huang, and M. Baktashmotlagh,
+“Geometry-guided self-supervision for ultra-fine-grained recognition
+with limited data,” 2026.
+[40] C.-H. Tu, Z. Mai, and W.-L. Chao, “Visual Query Tuning: Towards
+Effective Usage of Intermediate Representations for Parameter and
+Memory Efficient Transfer Learning,” in 2023 IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR). Vancouver, BC,
+Canada: IEEE, Jun. 2023, pp. 7725–7735.
+[41] S. Jie and Z.-H. Deng, “Convolutional Bypasses Are Better Vision
+Transformer Adapters,” Aug. 2022, arXiv:2207.07039 [cs].
+[42] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez,
+L. Kaiser, and I. Polosukhin, “Attention is All you Need,” in Advances
+in Neural Information Processing Systems, vol. 30. Curran Associates,
+Inc., 2017.
+[43] J. L. Ba, J. R. Kiros, and G. E. Hinton, “Layer Normalization,” Jul.
+2016, arXiv:1607.06450 [cs, stat].
+[44] J. Go and J. Ryu, “Channel Propagation Networks for Refreshable Vision
+Transformer,” 2025, pp. 1353–1362.
+[45] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and B. Guo,
+“Swin Transformer: Hierarchical Vision Transformer using Shifted Windows,” in 2021 IEEE/CVF International Conference on Computer Vision
+(ICCV). Montreal, QC, Canada: IEEE, Oct. 2021, pp. 9992–10 002.
+[46] W. Wang, E. Xie, X. Li, D.-P. Fan, K. Song, D. Liang, T. Lu, P. Luo, and
+L. Shao, “Pyramid Vision Transformer: A Versatile Backbone for Dense
+Prediction without Convolutions,” in 2021 IEEE/CVF International
+Conference on Computer Vision (ICCV), Oct. 2021, pp. 548–558, iSSN:
+2380-7504.
+[47] A. G. Howard, M. Zhu, B. Chen, D. Kalenichenko, W. Wang,
+T. Weyand, M. Andreetto, and H. Adam, “MobileNets: Efficient Convolutional Neural Networks for Mobile Vision Applications,” Apr. 2017,
+arXiv:1704.04861 [cs].
+[48] K. He, X. Zhang, S. Ren, and J. Sun, “Deep Residual Learning for
+Image Recognition,” in 2016 IEEE Conference on Computer Vision and
+Pattern Recognition (CVPR), Jun. 2016, pp. 770–778, iSSN: 1063-6919.
+[49] S. Hochreiter and J. Schmidhuber, “Long Short-Term Memory,” Neural
+Comput., vol. 9, no. 8, pp. 1735–1780, Nov. 1997.
+
+16
+
+[50] A. Krizhevsky, I. Sutskever, and G. E. Hinton, “ImageNet Classification
+with Deep Convolutional Neural Networks,” in Advances in Neural
+Information Processing Systems, vol. 25, 2012, pp. 1097–1105.
+[51] E. A. Rios, M.-C. Hu, and B.-C. Lai, “Global-Local Similarity for
+Efficient Fine-Grained Image Recognition with Vision Transformers,” in
+2025 IEEE International Symposium on Circuits and Systems (ISCAS),
+May 2025, pp. 1–5, iSSN: 2158-1525.
+[52] L. Biewald, “Experiment Tracking with Weights and Biases,” 2020.
+[53] S. Kong and C. Fowlkes, “Low-Rank Bilinear Pooling for Fine-Grained
+Classification,” in 2017 IEEE Conference on Computer Vision and
+Pattern Recognition (CVPR). Honolulu, HI: IEEE, Jul. 2017, pp. 7025–
+7034.
+[54] P. Li, J. Xie, Q. Wang, and W. Zuo, “Is Second-Order Information Helpful for Large-Scale Visual Recognition?” in 2017 IEEE International
+Conference on Computer Vision (ICCV). Venice: IEEE, Oct. 2017, pp.
+2089–2097.
+[55] P. Li, J. Xie, Q. Wang, and Z. Gao, “Towards Faster Training of
+Global Covariance Pooling Networks by Iterative Matrix Square Root
+Normalization,” in 2018 IEEE/CVF Conference on Computer Vision and
+Pattern Recognition. Salt Lake City, UT: IEEE, Jun. 2018, pp. 947–955.
+[56] E. A. Rios, M.-C. Hu, and B.-C. Lai, “Anime Character Recognition
+using Intermediate Features Aggregation,” in 2022 IEEE International
+Symposium on Circuits and Systems (ISCAS), May 2022, pp. 424–428,
+iSSN: 2158-1525.
+[57] Y. Rao, G. Chen, J. Lu, and J. Zhou, “Counterfactual Attention Learning
+for Fine-Grained Visual Categorization and Re-Identification,” 2021, pp.
+1025–1034.
+[58] H. Sun, X. He, and Y. Peng, “SIM-Trans: Structure Information Modeling Transformer for Fine-grained Visual Categorization,” in Proceedings
+of the 30th ACM International Conference on Multimedia, ser. MM ’22.
+New York, NY, USA: Association for Computing Machinery, Oct. 2022,
+pp. 5853–5861.
+[59] K. He, X. Chen, S. Xie, Y. Li, P. Dollar, and R. Girshick, “Masked
+Autoencoders Are Scalable Vision Learners,” in 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). New
+Orleans, LA, USA: IEEE, Jun. 2022, pp. 15 979–15 988.
+[60] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal,
+G. Sastry, A. Askell, P. Mishkin, J. Clark, G. Krueger, and I. Sutskever,
+“Learning Transferable Visual Models From Natural Language Supervision,” in Proceedings of the 38th International Conference on Machine
+Learning. PMLR, 2021, pp. 8748–8763.
+[61] M. Oquab, T. Darcet, T. Moutakanni, H. V. Vo, M. Szafraniec, V. Khalidov, P. Fernandez, D. Haziza, F. Massa, A. El-Nouby, M. Assran,
+N. Ballas, W. Galuba, R. Howes, P.-Y. Huang, S.-W. Li, I. Misra,
+M. Rabbat, V. Sharma, G. Synnaeve, H. Xu, H. Jegou, J. Mairal,
+P. Labatut, A. Joulin, and P. Bojanowski, “DINOv2: Learning Robust Visual Features without Supervision,” Transactions on Machine Learning
+Research, 2024.
+[62] S. Khanna, M. Irgau, D. B. Lobell, and S. Ermon, “ExPLoRA:
+Parameter-Efficient Extended Pre-Training to Adapt Vision Transformers
+under Domain Shifts,” in Proceedings of the 42nd International Conference on Machine Learning. PMLR, 2025, arXiv:2406.10973.
+[63] H. Touvron, M. Cord, M. Douze, F. Massa, A. Sablayrolles, and
+H. Jegou, “Training data-efficient image transformers & distillation
+through attention,” in Proceedings of the 38th International Conference
+on Machine Learning. PMLR, Jul. 2021, pp. 10 347–10 357, iSSN:
+2640-3498.
+[64] H. Touvron, M. Cord, and H. Jégou, “DeiT III: Revenge of the ViT,”
+Apr. 2022, arXiv:2204.07118 [cs].
+[65] S. Huang, X. Wang, and D. Tao, “SnapMix: Semantically Proportional
+Mixing for Augmenting Fine-grained Data,” in Proceedings of the AAAI
+Conference on Artificial Intelligence, vol. 35, May 2021, pp. 1628–1636.
+
+IEEE TRANSACTIONS ON AGRIFOOD ELECTRONICS
+
+Edwin Arkel Rios received the B.S. degree in
+Energy Engineering from National Cheng Kung
+University, Tainan, Taiwan, in 2019. He enrolled
+National Chiao Tung University to pursue a M.S. and
+then a Ph.D. degree in Electrical Engineering and
+Computer Science, in 2019 and 2021, respectively.
+His research is focused on the design of efficient
+deep learning models. In particular, he has conducted
+work on time-series for heart-rate monitoring, model
+compression using knowledge distillation, and finegrained image recognition.
+
+Femiloye Oyerinde received the B.Eng. degree
+in Civil and Environmental Engineering from the
+Federal University of Technology, Akure, Nigeria,
+in 2023. He is currently a Machine Learning Engineer with Surf Eye Portugal, where he designs
+and optimizes personalized video-retrieval systems.
+His interests include self-supervised learning, and
+parameter-efficient transfer learning.
+
+Fernando Mikael received his B.S. degree in Electrical Engineering and Computer Science from National Tsing Hua University, Taiwan, in 2024. He
+is currently a member of the MIS Lab, conducting
+research in the field of computer vision and machine
+learning. His research interests include fine-grained
+image recognition, knowledge distillation, and data
+augmentation.
+
+Oswin Gosal received his B.S. degree in Electrical
+Engineering and Computer Science from National
+Tsing Hua University (NTHU), Hsinchu, Taiwan. He
+is currently pursuing an M.S. degree in the Institute
+of Information Systems and Applications at NTHU.
+His research interests include artificial intelligence,
+with a focus on image recognition and its practical
+applications.
+
+17
+
+Min-Chun Hu is also known as Min-Chun Tien
+and Ming-Chun Tien. She received the B.S. and
+M.S. degrees in computer science and information
+engineering from National Chiao Tung University,
+Hsinchu, Taiwan, in 2004 and 2006, respectively,
+and the Ph.D. degree from the Graduate Institute of
+Networking and Multimedia, National Taiwan University, Taipei, Taiwan, in 2011. She is a Professor
+in the Department of Computer Science, National
+Tsing Hua University, Taiwan. From 2012 to 2017,
+she was an assistant professor in the Department
+of Computer Science and Information Engineering, National Cheng Kung
+University, Tainan, Taiwan, and she was promoted as an associate professor
+in 2018. She has published more than 100 papers in international journals
+and conferences. She was awarded the Exploration Research Award from
+Pan Wen Yuan Foundation, the Outstanding Youth Award from the Computer
+Society of the Republic Of China (CSROC), and the Best Young Professional
+Member Award of IEEE Tainan Section in 2015, 2017, and 2018, respectively.
+Her research interests include digital signal processing, multimedia content
+analysis, machine learning, computer vision, computer graphics, virtual reality
+and augmented reality.
+
+Bo-Cheng Lai obtained his M.S. and Ph.D. degrees
+from the department of electrical engineering at
+UCLA in 2003 and 2007 respectively. His research
+area concerns parallel computing, multicore architecture, low power designs, and embedded systems.
+Dr. Lai is the recipient of Outstanding Project
+Achievement of National Program for Intelligent
+Electronics, from Ministry of Science and Technology, Taiwan, in 2014. He is nominated as the
+Distinguished Young Scholar by Taiwan IC Design
+Society in 2016. Dr. Lai is also awarded Outstanding
+Young Scholar Project by Ministry of Science and Technology, Taiwan, for
+consecutive years from 2016 to 2022. Dr. Lai joined National Yang Ming
+Chiao Tung University in 2009, where he is currently a full professor at
+Institute of Electronics.
+
+=== PAPER: Cross-Layer Cache Aggregation for Token Reduction in Ultra-Fine-Grained Image Recognition ===
+
+Cross-Layer Cache Aggregation for Token
+Reduction in Ultra-Fine-Grained Image Recognition
+Edwin Arkel Rios† , Jansen Christopher Yuanda‡ , Vincent Leon Ghanz‡ , Cheng-Wei Yu† , Bo-Cheng Lai† , Min-Chun Hu‡
+†
+National Yang Ming Chiao Tung University, Taiwan, ‡ National Tsing Hua University, Taiwan
+
+Abstract—Ultra-fine-grained image recognition (UFGIR) is a
+challenging task that involves classifying images within a macrocategory. While traditional FGIR deals with classifying different
+species, UFGIR goes beyond by classifying sub-categories within
+a species such as cultivars of a plant. In recent times the usage
+of Vision Transformer-based backbones has allowed methods to
+obtain outstanding recognition performances in this task but this
+comes at a significant cost in terms of computation specially
+since this task significantly benefits from incorporating higher
+resolution images. Therefore, techniques such as token reduction
+have emerged to reduce the computational cost. However, dropping tokens leads to loss of essential information for fine-grained
+categories, specially as the token keep rate is reduced. Therefore,
+to counteract the loss of information brought by the usage of
+token reduction we propose a novel Cross-Layer Aggregation
+Classification Head and a Cross-Layer Cache mechanism to
+recover and access information from previous layers in later
+locations. Extensive experiments covering more than 2000 runs
+across diverse settings including 5 datasets, 9 backbones, 7 token
+reduction methods, 5 keep rates, and 2 image sizes demonstrate
+the effectiveness of the proposed plug-and-play modules and
+allow us to push the boundaries of accuracy vs cost for UFGIR
+by reducing the kept tokens to extremely low ratios of up to
+10% while maintaining a competitive accuracy to state-of-the-art
+models. Code is available at: https://github.com/arkel23/CLCA
+Index Terms—Efficient, Vision Transformer, Fine Grained
+Visual Analysis, Model Compression, Image Classification.
+
+I. I NTRODUCTION
+Fine-grained image recognition (FGIR) involves classifying
+images into sub-categories within a larger macro-category [1].
+While conventional FGIR [1] classifies objects usually up to
+species-level granularity, ultra-FGIR (UFGIR) may categorize
+classes at a finer level, such as cultivars of a plant. It has
+practical applications in fields such as agriculture [2].
+It is challenging due to small inter-class and large intraclass variations, but in recent years there has been a significant
+improvement in performance in terms of accuracy. Previous
+work has noted how this may be driven by backbone choices
+[3]. In particular, the Vision Transformer (ViT) [4] has brought
+a large performance improvement across tasks [5], [6]; the
+global receptive field of the ViT’s attention mechanism provides it an advantage in handling long-range dependencies,
+allowing it to effectively discover and learn dependencies
+between discriminative features within an image [3].
+This work was supported by the National Science and Technology Council,
+Taiwan, under grant NSTC 111-2221-E-A49-092-MY3, NSTC 113-2640-EA49-005, NSTC 112-2221-E-007-079-MY3 and NSTC 113-2218-E-007-020.
+We thank NYCU HPC for providing computational and storage resources.
+
+However, this accuracy improvement has come at a cost
+in terms of computational resources required for training and
+inference [3]. ViT-based models have higher FLOPs compared
+to equivalent CNN-based models, specially as the image size
+is increased. This is due to the quadratic complexity O(N 2 )
+of the self-attention mechanism with respect to the sequence
+length N . Specialized FGIR models employing ViT as a
+backbone [5] may even exhibit cubic complexity O(N 3 ) due
+to their usage of aggregated attention [7].
+Employing higher-resolution images in FGIR is common in
+order to identify the small differences between classes [8], [9].
+In order to effectively make use of current and next-generation
+scaled models, specially in low-resource settings, it is crucial
+to increase the efficiency of such ViT-based models; token
+reduction is a promising direction to increase their efficiency.
+Token Reduction (TR) proposes dropping [10], [11] or
+combining [12], [13] unimportant tokens from the sequence
+in order to reduce the number of tokens to be processed; it is
+also known as token or input pruning. In computer vision these
+tokens represent image patches. By reducing the number the
+tokens the FLOPs, latency, and memory consumption could
+be reduced, while throughput can be increased [10], [14].
+Different TR methods use different criteria for selecting or
+merging tokens; some use attention [11], [15], while others
+employ learnable modules [10], [16]. However, regardless of
+the TR selection criteria, the process of TR inevitably leads to
+the loss of valuable information for discrimination, specially
+as the keep ratio (KR) of tokens is reduced.
+Therefore, to counteract the loss of information brought
+by the TR process we propose two novel mechanisms: 1)
+a Cross-Layer Aggregation (CLA) Classification Head which
+incorporates skip connections for intermediate features of a
+transformer directly into the classification module, and 2) a
+Cross-Layer Cache (CLC) structure to store and recover crosslayer information vital for fine-grained classification.
+We refer to our full method method, incorporating both the
+CLA Head and the CLC, as Cross-Layer Cache Aggregation
+(CLCA). CLCA allows us to push the boundary of TR
+methods, by employing extremely low token keep ratios (KR)
+of up to 10%, while keeping an accuracy that is on-par with (or
+even surpass in certain cases) state-of-the-art (SotA) methods
+in UFGIR. We demonstrate the performance improvement
+brought by our proposed contributions with different token
+KRs, and image sizes for the SoyGene dataset [2] in Fig. 1.
+Our contributions are as follows:
+
+© 20XX IEEE. Personal use of this material is permitted. Permission from IEEE must be obtained for all other uses, in any current or future media,
+including reprinting/republishing this material for advertising or promotional purposes, creating new collective works, for resale or redistribution to servers
+or lists, or reuse of any copyrighted component of this work in other works..
+
+For instance, DynamicViT [10] drops tokens with a static keep
+rate based on decisions predicted by a learnable MLP module,
+while ATS [11] drops tokens with a dynamic keep rate based
+on attention scores. Conversely, token merging reduces the
+total number of tokens by combining multiple tokens into one.
+Zeng et al. [19] implement this via the DPC-KNN clustering
+algorithm, while Zong et al. [16] adopt a learnable weight
+approach, resulting in slimmed rather than dropped tokens.
+III. P ROPOSED M ETHOD : CLCA
+
+Fig. 1. Accuracy vs FLOPs for DeiT3 [17] with EViT [15] token reduction
+method with (CLCA) and without (Base) our proposed modules on the
+SoyGene dataset [2] as a function of different keep rates (10, 25, 50, 70
+and 100%) and image sizes (in parenthesis).
+
+1) We propose a novel Cross-Layer Aggregation Classification (CLA) Head to expedite information from
+intermediate layers of a transformer directly into the
+classification module.
+2) We propose the Cross-Layer Cache (CLC) structure to
+counteract the loss of information brought by token
+reduction. The CLC allows us to access features from
+previous layer at deeper layers in order to facilitate finegrained classification.
+3) We conduct extensive experiments on 5 UFGIR datasets
+with a variety of TR schemes, token keep rates, and
+pretrained backbones. Across more than 2000 runs, the
+proposed model, CLCA, combining the CLA and CLC
+plug-and-play modules, significantly and consistently
+improves the accuracy across diverse settings, while incurring minimal increase in cost. Furthermore, it enables
+us to reduce the TR KR up to 10%, drastically reducing
+computational costs, while maintaining an accuracy that
+is on par with models with much higher cost as measured
+by the number of floating-point-operations (FLOPs).
+II. R ELATED W ORK
+A. Ultra-Fine-Grained Image Recognition
+UFGIR methods make use of generic image recognition
+backbones and equip them with modules to select and aggregate discriminative features [5], [6] or employ loss functions
+and tasks [18] to guide models to more effectively make use
+of fine-grained features.
+However, many of these methods employ transformer-based
+backbones with a large computational cost, specially as the
+image size increases due to the quadratic complexity of the
+self-attention operator.
+B. Token Reduction
+Token reduction methods can be broadly categorized into
+token pruning and token merging. Token pruning involves the
+dropping of a number of uninformative tokens at certain layers.
+
+The overview of our proposed method is shown in Fig. 2.
+Our method is based on a generic Vision Transformer with
+token reduction. The transformer encoder blocks are divided
+into four groups based on the token reduction locations and
+the last layer. Features in each group are processed using
+a series of encoder blocks followed by a token reduction
+and cache recovery operations. We aggregate intermediate
+features corresponding to the outputs of the CLS token of each
+group. These features are first normalized, then cross-layer
+channel-wise information is aggregated through a depth-wise
+convolution. We incorporate a non-linear activation function
+to model complex relations between features. Finally, a pointwise convolution projects the aggregated features into a vector
+of classification predictions.
+A. Vision Transformer Encoder Group with Token Reduction
+Images are patchified using a convolution with kernel size
+P and flattened into a 1D sequence of D channels with length
+N = (S1 /P ) × (S2 /P ), where S1 and S2 represent the image
+width and height. A learnable CLS token is appended at the
+start of the sequence. Learnable positional embeddings are
+added to incorporate spatial information.
+This sequence is then processed through a series of L transformer encoder blocks, divided into g groups, each consisting
+of multi-head self-attention (MHSA) and position-wise feedforward networks (PWFFN).
+At the last encoder block of each group we reduce tokens
+according to each TR scheme. Our method can be combined
+with most token reduction methodologies but we focus on
+EViT [15]. EViT selects tokens to keep based on the average
+attention-score of the CLS token with respect to the other
+tokens as computed in the MHSA block.
+Specifically, the top-k tokens with highest attention based
+on the CLS token attention A0 are kept and the remaining
+tokens are merged using a weighted average operation. Then
+the kept tokens and the fused token will be concatenated and
+forwarded to the PWFFN block as normally.
+B. Cross-Layer Aggregation (CLA) Head
+To prevent information loss we fast-forward intermediate
+features of the network directly into the classification layer.
+Specifically, we forward the CLS token output of each encoder
+group (after each reduction location and the last layer) into the
+proposed CLA Head, shown in the right block of Fig. 2.
+In the CLA Head we concatenate and reshape the tokens
+into a sequence of size g, denoted as CLS ∈ RD×g , before
+
+Fig. 2. From top to bottom, on the left is the overview for a ViT with the proposed Cross-Layer Cache Aggregation (CLCA). A learnable CLS and CrossLayer Register (CLR) tokens are attached to a sequence of local features corresponding to image patches. This sequence is passed through a series of ViT
+Encoder Groups equipped with the proposed Cross-Layer Cache (CLC). Each Encoder Group is composed of a series of transformer encoder blocks followed
+by a reduction block that drops tokens at the end. After each encoder block we cache the spatial Global Average Pooling (GAP) of the local features, the
+tokens surrounded by the green dashed box, and the last token in the sequence (the CLR). After the reduction block we recover intermediate features from
+previous layers from the CLC, empty it, and then cache the current layer outputs. We repeat the process for each encoder group. Thereafter, the CLS token
+outputs of each Encoder Group are processed by the Cross-Layer Aggregation (CLA) Classification Head. These CLS tokens are first normalized using a
+BatchNorm layer, then forwarded through a Depth-Wise Convolution layer that combines cross-layer features for each channel separately. A second BatchNorm
+and activation function are employed for learning non-linear interactions between intermediate features. Finally, the vector of features is passed through a
+Point-Wise Convolution that outputs the classification predictions.
+
+normalizing the features using a BatchNorm layer. Then, a
+Depth-Wise Convolution is employed to aggregate channelwise interactions across layers.
+Agg = DWConv(BN([CLSG1 ; CLSG2 ; . . . ; CLSGg ]))
+
+(1)
+
+The output is an aggregated token Agg ∈ RD·DWG where
+DWG = 2 is the number of groups dedicated to each channel
+in the depth-wise convolution. This aggregated token is passed
+through a BatchNorm and GELU activation function in order
+to model complex non-linear relationships between features.
+Finally, a Point-Wise Convolution projects the aggregated features into a vector of class probabilities used for classification.
+preds = PWConv(GELU(BN(Agg)))
+
+(2)
+
+C. Cross-Layer Cache (CLC)
+Regardless of the TR scheme, the information encoded in
+the original tokens is lost. Since reduction is applied from
+early layers that process low-level features, it is unavoidable
+to lose information that deeper layers may require to make
+a distinction between fine-grained categories. Therefore, inspired by FFVT, [6] which aggregated low-level and middlelevel features from the network in the last encoder layer of a
+ViT for improved classification performance, we incorporate a
+Cross-Layer Cache (CLC) structure to store local and discriminative features from intermediate layers for future usage. An
+overview of the CLC is shown in the middle block of Fig. 2.
+Specifically, after each transformer encoder block in an
+encoder group, we store the Global-Average-Pooling (GAP)
+
+pooled local features of the model. Furthermore, inspired
+by previous work which suggested that transformers need
+registers [20] we append a learnable Cross-Layer Register
+(CLR) at the end of the sequence. After each encoder block we
+also store this CLR that aggregates discriminative information
+across layers for future use.
+After the reduction location or before the last layer, we
+access the CLC to recover the lost information tokens by
+appending the tokens stored in it to the original sequence.
+This allows our model to counteract the information loss that
+comes with token reduction and make usage of relevant crosslayer information for discrimination of fine-grained categories.
+Finally, the CLC is emptied so as to not repeat tokens in future
+recovery operations.
+IV. E XPERIMENT M ETHODOLOGY
+TABLE I
+T OP -1 ACCURACIES (%) AND FLOP S FOR S OTA METHODS IN UFGIR.
+F OR CLCA WE INCLUDE THE TOKEN KEEP RATE IN PARENTHESIS .
+Method
+ViT [4]
+DeiT [17]
+TransFG [5]
+SIM-Tr [21]
+CSDNet [18]
+CLCA (10%)
+CLCA (70%)
+
+Cotton
+
+SoyAgeing
+
+SoyGlobal
+
+FLOPs (109 )
+
+52.5
+54.2
+54.6
+54.6
+57.9
+55.6
+67.8
+
+67.0
+69.5
+72.2
+34.8
+75.4
+87.4
+88.3
+
+40.6
+45.3
+21.2
+70.7
+56.3
+61.1
+58.2
+
+78.5
+78.5
+447.9
+81.8
+78.5
+25.2
+50.9
+
+Our experiments use 5 ultra-fine-grained leaves datasets
+collected by Yu et al. [2] where each category represents a
+
+confirmed cultivar name attached to the seed obtained from
+the genetic resource bank. Top-1 accuracies are averaged
+across three seeds [22]. When applicable, the best values are
+highlighted in bold and the second best are underlined.
+We employ AdamW optimizer, 50 epochs, weight decay
+of 0.05, batch size of 32, two image sizes (224, 448), nine
+backbones (ViT [4], DeiT [23], DeiT3 IN1k & IN21k [17],
+MIIL [24], MoCov3 [25], DINO [26], MAE [27], CLIP
+LAION [28]) five different keep rates (100, 70, 50, 25, and
+10%). The token reduction operations are done on the 4th, 7th,
+and 10th of a ViT B-16 model with 12 layers, therefore we
+recover tokens from the CLC after these same locations and
+also after layer 11.
+The proposed CLCA is agnostic to the TR method. We
+mainly apply it with EViT [15], but we also apply it to methods
+from all four different TR paradigms: DynamicViT [10] for
+static pruning, ATS for dynamic pruning [11], SiT [16] and
+PatchMerger [12] for soft merging, and DPCKNN [19] and
+ToMe [13] for hard merging.
+
+B. Comparison with State-of-the-Art in UFGIR
+We compare our method against state-of-the-art (SotA)
+methods using ViTs in the Cotton, SoyAgeing, and SoyGlobal
+datasets in Table I. When compared to these we observe that
+our method obtains superior performance in terms of accuracy
+in the Cotton and SoyAgeing datasets. For the SoyGlobal
+dataset our method obtains the second best accuracy but the
+computational cost in terms of FLOPs is much lower.
+C. Discussion on Why CLCA Works
+
+V. R ESULTS AND D ISCUSSION
+A. Comparison of CLCA with Different TR Schemes
+
+Fig. 4. Ablation showing max magnitude of gradient across all layers of
+the model during training for DeiT3 B-16 [17] on SoyLocal dataset with our
+proposed modules and the corresponding top-1 accuracy.
+
+Fig. 3. Distribution of accuracies for multiple keep rates (25, 50, and 70%)
+on 9 different pretrained backbones as a function of the TR selection scheme
+(and the baseline without TR) on SoyLocal and SoyGene datasets with and
+without proposed CLCA.
+
+In Fig. 4 we plot the gradients during training for our model.
+Our analysis reveals that, prior to incorporating the proposed
+components, the gradients exhibit significant instability.
+Therefore, inspired by previous which suggests that skip
+connections can smooth out the optimization landscape [29]
+we incorporate information transfer in between 1) intermediate
+layers of the network to the (CLA) classification head, and 2)
+intermediate layers of an encoder group and the subsequent
+block through the usage of the Cross-Layer Cache (CLC).
+These proposed modules function as skip connections which
+have been shown to ease the training by avoiding spurious
+local optimum [30] and encouraging feature reuse [31].
+Furthermore, in UFGIR the usage of low-, middle-, and
+high-level features has been shown to be beneficial to distinguish between classes [6]. Our proposed modules provide
+shorter connections to these features, which has been shown
+to provide implicit deep supervision [32].
+
+We plot the accuracy vs FLOPs as a function of image
+size (IS) and keep rate (KR) for the SoyGene dataset with
+EViT in Fig. 1. By incorporating CLCA the lower bound of
+the accuracy is raised to 61% and to a maximum of 81%
+compared to the original design which ranged from 30% to
+67%. Models with CLCA are more robust to the TR KR and
+the IS compared to the original while incurring a negligible
+increase in cost as measured by the FLOPs.
+These results are further validated by plotting the accuracies
+distribution (across 9 backbones, 3 keep rates, 3 random seeds,
+on 2 datasets) for different TR schemes with and without
+CLCA, as shown in Fig. 3. Our method consistently improves
+the performance across a wide variety of settings.
+
+VI. C ONCLUSION
+In this paper we propose Cross-Layer Cache Aggregation
+(CLCA), a method to improve the performance of token
+reduction in ultra-fine-grained image recognition tasks. The
+proposed method integrates intermediate features from the network through a Cross-Layer Aggregation (CLA) classification
+head for robust predictions, and Cross-Layer Cache (CLC) to
+recover and integrate lost information from previous layers
+that is lost under the token reduction paradigm. The proposed
+methodology can be combined with a variety of mechanisms
+to reduce tokens, massively reducing the computational cost
+while consistently boosting the performance across different
+UFGIR datasets under a variety of settings.
+
+R EFERENCES
+[1] X.-S. Wei, Y.-Z. Song, O. Mac Aodha, J. Wu, Y. Peng, J. Tang, J. Yang,
+and S. Belongie, “Fine-Grained Image Analysis with Deep Learning: A
+Survey,” IEEE Transactions on Pattern Analysis and Machine Intelligence, pp. 1–1, 2021, conference Name: IEEE Transactions on Pattern
+Analysis and Machine Intelligence.
+[2] X. Yu, Y. Zhao, Y. Gao, X. Yuan, and S. Xiong, “Benchmark Platform
+for Ultra-Fine-Grained Visual Categorization Beyond Human Performance,” in 2021 IEEE/CVF International Conference on Computer
+Vision (ICCV), Oct. 2021, pp. 10 265–10 275, iSSN: 2380-7504.
+[3] S. Ye, Y. Wang, Q. Peng, X. You, and C. L. P. Chen, “The Image Data
+and Backbone in Weakly Supervised Fine-Grained Visual Categorization: A Revisit and Further Thinking,” IEEE Transactions on Circuits
+and Systems for Video Technology, vol. 34, no. 1, pp. 2–16, Jan. 2024,
+conference Name: IEEE Transactions on Circuits and Systems for Video
+Technology.
+[4] A. Dosovitskiy, L. Beyer, A. Kolesnikov, D. Weissenborn, X. Zhai,
+T. Unterthiner, M. Dehghani, M. Minderer, G. Heigold, S. Gelly,
+J. Uszkoreit, and N. Houlsby, “An Image is Worth 16x16 Words:
+Transformers for Image Recognition at Scale,” arXiv:2010.11929 [cs],
+Oct. 2020, arXiv: 2010.11929.
+[5] J. He, J.-N. Chen, S. Liu, A. Kortylewski, C. Yang, Y. Bai, and C. Wang,
+“TransFG: A Transformer Architecture for Fine-Grained Recognition,”
+in Proceedings of the First MiniCon Conference, Feb. 2022.
+[6] J. Wang, X. Yu, and Y. Gao, “Feature Fusion Vision Transformer
+for Fine-Grained Visual Categorization,” in British Machine Vision
+Conference (BMVC), Jul. 2021, arXiv: 2107.02341.
+[7] S. Abnar and W. Zuidema, “Quantifying Attention Flow in Transformers,” May 2020, arXiv:2005.00928 [cs].
+[8] L. Wang, J. Zhang, J. Tian, J. Li, L. Zhuo, and Q. Tian, “Efficient FineGrained Object Recognition in High-Resolution Remote Sensing Images
+From Knowledge Distillation to Filter Grafting,” IEEE Transactions on
+Geoscience and Remote Sensing, vol. 61, pp. 1–16, 2023, conference
+Name: IEEE Transactions on Geoscience and Remote Sensing.
+[9] B. Guo, R. Zhang, H. Guo, W. Yang, H. Yu, P. Zhang, and T. Zou, “FineGrained Ship Detection in High-Resolution Satellite Images With ShapeAware Feature Learning,” IEEE Journal of Selected Topics in Applied
+Earth Observations and Remote Sensing, vol. 16, pp. 1914–1926, 2023,
+conference Name: IEEE Journal of Selected Topics in Applied Earth
+Observations and Remote Sensing.
+[10] Y. Rao, W. Zhao, B. Liu, J. Lu, J. Zhou, and C.-J. Hsieh, “DynamicViT:
+Efficient Vision Transformers with Dynamic Token Sparsification,” Oct.
+2021.
+[11] M. Fayyaz, S. A. Koohpayegani, F. R. Jafari, S. Sengupta, H. R. V. Joze,
+E. Sommerlade, H. Pirsiavash, and J. Gall, “Adaptive Token Sampling
+For Efficient Vision Transformers,” Jul. 2022, arXiv:2111.15667 [cs].
+[12] C. Renggli, A. S. Pinto, N. Houlsby, B. Mustafa, J. Puigcerver, and
+C. Riquelme, “Learning to Merge Tokens in Vision Transformers,” Feb.
+2022, arXiv:2202.12015 [cs].
+[13] D. Bolya, C.-Y. Fu, X. Dai, P. Zhang, C. Feichtenhofer, and J. Hoffman,
+“Token Merging: Your ViT But Faster,” Mar. 2023, arXiv:2210.09461
+[cs].
+[14] Y. Tang, K. Han, Y. Wang, C. Xu, J. Guo, C. Xu, and D. Tao, “Patch
+Slimming for Efficient Vision Transformers,” Apr. 2022.
+[15] Y. Liang, C. Ge, Z. Tong, Y. Song, J. Wang, and P. Xie, “EViT:
+Expediting Vision Transformers via Token Reorganizations,” Oct. 2021.
+[16] Z. Zong, K. Li, G. Song, Y. Wang, Y. Qiao, B. Leng, and Y. Liu, “Selfslimmed Vision Transformer,” Sep. 2022.
+[17] H. Touvron, M. Cord, and H. Jégou, “DeiT III: Revenge of the ViT,”
+Apr. 2022, arXiv:2204.07118 [cs].
+[18] Z. Fang, X. Jiang, H. Tang, and Z. Li, “Learning Contrastive SelfDistillation for Ultra-Fine-Grained Visual Categorization Targeting Limited Samples,” IEEE Transactions on Circuits and Systems for Video
+Technology, pp. 1–1, 2024, conference Name: IEEE Transactions on
+Circuits and Systems for Video Technology.
+[19] W. Zeng, S. Jin, W. Liu, C. Qian, P. Luo, W. Ouyang, and X. Wang,
+“Not All Tokens Are Equal: Human-centric Visual Analysis via Token
+Clustering Transformer,” in 2022 IEEE/CVF Conference on Computer
+Vision and Pattern Recognition (CVPR). New Orleans, LA, USA: IEEE,
+Jun. 2022, pp. 11 091–11 101.
+[20] T. Darcet, M. Oquab, J. Mairal, and P. Bojanowski, “Vision Transformers
+Need Registers,” Oct. 2023.
+
+[21] H. Sun, X. He, and Y. Peng, “SIM-Trans: Structure Information Modeling Transformer for Fine-grained Visual Categorization,” in Proceedings
+of the 30th ACM International Conference on Multimedia, ser. MM ’22.
+New York, NY, USA: Association for Computing Machinery, Oct. 2022,
+pp. 5853–5861.
+[22] M. Gwilliam, A. Teuscher, C. Anderson, and R. Farrell, “Fair Comparison: Quantifying Variance in Results for Fine-Grained Visual Categorization,” 2021, pp. 3309–3318.
+[23] H. Touvron, M. Cord, M. Douze, F. Massa, A. Sablayrolles, and
+H. Jégou, “Training data-efficient image transformers & distillation through attention,” arXiv:2012.12877 [cs], Jan. 2021, arXiv:
+2012.12877.
+[24] T. Ridnik, E. Ben-Baruch, A. Noy, and L. Zelnik, “ImageNet-21K
+Pretraining for the Masses,” Proceedings of the Neural Information
+Processing Systems Track on Datasets and Benchmarks, vol. 1, Dec.
+2021.
+[25] X. Chen, S. Xie, and K. He, “An Empirical Study of Training SelfSupervised Vision Transformers,” in 2021 IEEE/CVF International
+Conference on Computer Vision (ICCV). Montreal, QC, Canada: IEEE,
+Oct. 2021, pp. 9620–9629.
+[26] M. Caron, H. Touvron, I. Misra, H. Jegou, J. Mairal, P. Bojanowski, and
+A. Joulin, “Emerging Properties in Self-Supervised Vision Transformers,” in 2021 IEEE/CVF International Conference on Computer Vision
+(ICCV), Oct. 2021, pp. 9630–9640, iSSN: 2380-7504.
+[27] K. He, X. Chen, S. Xie, Y. Li, P. Dollar, and R. Girshick, “Masked
+Autoencoders Are Scalable Vision Learners,” in 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). New
+Orleans, LA, USA: IEEE, Jun. 2022, pp. 15 979–15 988.
+[28] C. Schuhmann, R. Beaumont, R. Vencu, C. Gordon, R. Wightman, M. Cherti, T. Coombes, A. Katta, C. Mullis, M. Wortsman,
+P. Schramowski, S. Kundurthy, K. Crowson, L. Schmidt, R. Kaczmarczyk, and J. Jitsev, “LAION-5B: An open large-scale dataset for training
+next generation image-text models,” Advances in Neural Information
+Processing Systems, vol. 35, pp. 25 278–25 294, Dec. 2022.
+[29] H. Li, Z. Xu, G. Taylor, C. Studer, and T. Goldstein, “Visualizing the
+Loss Landscape of Neural Nets,” in Advances in Neural Information
+Processing Systems, vol. 31. Curran Associates, Inc., 2018.
+[30] T. Liu, M. Chen, M. Zhou, S. S. Du, E. Zhou, and T. Zhao, “Towards
+Understanding the Importance of Shortcut Connections in Residual
+Networks,” in Advances in Neural Information Processing Systems,
+vol. 32. Curran Associates, Inc., 2019.
+[31] G. Huang, Z. Liu, L. Van Der Maaten, and K. Q. Weinberger, “Densely
+Connected Convolutional Networks,” in 2017 IEEE Conference on
+Computer Vision and Pattern Recognition (CVPR), Jul. 2017, pp. 2261–
+2269, iSSN: 1063-6919.
+[32] A. Veit, M. Wilber, and S. Belongie, “Residual networks behave like
+ensembles of relatively shallow networks,” in Proceedings of the 30th
+International Conference on Neural Information Processing Systems, ser.
+NIPS’16. Red Hook, NY, USA: Curran Associates Inc., Dec. 2016,
+pp. 550–558.

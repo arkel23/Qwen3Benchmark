@@ -1,0 +1,6 @@
+model_id,model,codegen_score,items_scored,instruct_score,reading_score,summary_score,codegen_all_pass_rate,request_errors,median_completion_tokens,median_decode_tps,pp512_d0_tps,tg128_d0_tps,pp512_d32768_tps,tg128_d32768_tps,pp512_d100000_tps,tg128_d100000_tps,chat_1users_aggregate_tps,chat_2users_aggregate_tps,chat_4users_aggregate_tps
+M0,Qwen3.8-27B UD-Q4_K_XL,0.9691,83,0.9867,1.0,0.6667,0.9167,0,312.0,25.27,816.17,32.74,506.04,21.22,280.28,13.53,26.9,39.66,49.39
+M1,Qwen3.8-27B UD-Q5_K_XL,1.0,83,1.0,1.0,0.5,1.0,0,324.0,21.03,848.92,28.73,512.29,20.48,281.58,12.33,23.83,35.56,45.7
+M2,Qwen3.8-27B UD-Q6_K_XL,0.9907,83,0.9867,1.0,0.6667,0.9444,0,311.0,19.31,885.6,24.69,523.84,20.28,284.02,10.62,20.65,32.99,43.48
+M3,Ornith-1.5-35B-A3B Q5_K_M,0.8179,83,1.0,0.9167,0.1667,0.7778,0,494.0,88.79,802.67,99.52,609.21,81.58,440.4,58.99,58.39,79.39,94.3
+M4,Qwen3.8-Flash-Next UD-IQ3_XXS,0.975,61,1.0,1.0,0.75,0.9167,0,166.0,7.45,6.99,3.68,,,,,3.89,5.89,8.15

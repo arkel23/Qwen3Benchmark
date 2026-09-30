@@ -1,0 +1,59 @@
+{
+  "M0": {
+    "name": "Qwen3.8-27B UD-Q4_K_XL",
+    "repo": "unsloth/Qwen3.8-27B-GGUF",
+    "file": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+    "args": [
+      "-ngl",
+      "999"
+    ]
+  },
+  "M1": {
+    "name": "Qwen3.8-27B UD-Q5_K_XL",
+    "repo": "unsloth/Qwen3.8-27B-GGUF",
+    "file": "Qwen3.8-27B-UD-Q5_K_XL.gguf",
+    "args": [
+      "-ngl",
+      "999"
+    ]
+  },
+  "M2": {
+    "name": "Qwen3.8-27B UD-Q6_K_XL",
+    "repo": "unsloth/Qwen3.8-27B-GGUF",
+    "file": "Qwen3.8-27B-UD-Q6_K_XL.gguf",
+    "args": [
+      "-ngl",
+      "999",
+      "-ctk",
+      "q8_0",
+      "-ctv",
+      "q8_0"
+    ]
+  },
+  "M3": {
+    "name": "Ornith-1.5-35B-A3B Q5_K_M",
+    "repo": "ornith-ai/Ornith-1.5-35B-A3B-GGUF",
+    "file": "Ornith-1.5-35B-Q5_K_M.gguf",
+    "args": [
+      "-ngl",
+      "999",
+      "-ctk",
+      "q8_0",
+      "-ctv",
+      "q8_0"
+    ]
+  },
+  "M4": {
+    "name": "Qwen3.8-Flash-Next UD-IQ3_XXS",
+    "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+    "file": "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
+    "args": [
+      "-ngl",
+      "999",
+      "--n-cpu-moe",
+      "NCPUMOE",
+      "-t",
+      "20"
+    ]
+  }
+}

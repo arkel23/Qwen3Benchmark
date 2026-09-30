@@ -1,0 +1,80 @@
+[
+  {
+    "id": "q1",
+    "question": "In the Mandarin quantization paper, how many evaluation runs does the study comprise?",
+    "answer": "2,014",
+    "aliases": [],
+    "position": 0.052
+  },
+  {
+    "id": "q2",
+    "question": "In the Mandarin quantization paper, to what median CER does Qwen2.5-Omni, the best BFloat16 model, collapse at HQQ2 on the short-form corpus?",
+    "answer": "1575.4",
+    "aliases": [],
+    "position": 0.172
+  },
+  {
+    "id": "q3",
+    "question": "In the Mandarin quantization paper, what Spearman correlation do CONER and VER have with each other?",
+    "answer": "ρ = 0.998",
+    "aliases": [
+      "0.998"
+    ],
+    "position": 0.266
+  },
+  {
+    "id": "q4",
+    "question": "In Table 2 of the Mandarin quantization paper, how many utterances does the largest dataset split have?",
+    "answer": "49,354",
+    "aliases": [],
+    "position": 0.104
+  },
+  {
+    "id": "q5",
+    "question": "In the Mandarin quantization paper, how many utterances does CMMLU-Speech contribute to the long-form corpus?",
+    "answer": "3,147",
+    "aliases": [],
+    "position": 0.31
+  },
+  {
+    "id": "q6",
+    "question": "In the Mandarin quantization paper, what is the diagonal mean of the tone confusion matrix at 2 bits?",
+    "answer": "57.9%",
+    "aliases": [
+      "57.9"
+    ],
+    "position": 0.28
+  },
+  {
+    "id": "q7",
+    "question": "In the teacher-guided data augmentation (ViTFS) paper, what latency speedup does replacing LayerNorm with BatchNorm give on the Samsung Galaxy A53 5G at 224 × 224?",
+    "answer": "2.64",
+    "aliases": [
+      "2.64×"
+    ],
+    "position": 0.486
+  },
+  {
+    "id": "q8",
+    "question": "In Table 4 of the ViTFS paper, how many parameters (M) does ViTFS-T have?",
+    "answer": "5.63",
+    "aliases": [],
+    "position": 0.788
+  },
+  {
+    "id": "q9",
+    "question": "In the ViTFS paper, what peak CUB top-1 accuracy does the distillation temperature sweep reach?",
+    "answer": "80.51%",
+    "aliases": [
+      "80.51"
+    ],
+    "position": 0.81
+  },
+  {
+    "id": "q10",
+    "question": "In Table 5 of the ViTFS paper, what is the highest throughput (Imgs/s) among the models compared?",
+    "answer": "803.0",
+    "aliases": [],
+    "position": 0.797
+  }
+]

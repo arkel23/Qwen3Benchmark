@@ -1,0 +1,80 @@
+[
+  {
+    "id": "q1",
+    "question": "How many short-form utterances does one full model sweep evaluate?",
+    "answer": "159,879",
+    "aliases": [],
+    "position": 0.738
+  },
+  {
+    "id": "q2",
+    "question": "In Table 2, what is the parameter count in millions of Wh-S?",
+    "answer": "241.7",
+    "aliases": [],
+    "position": 0.294
+  },
+  {
+    "id": "q3",
+    "question": "In Table 1, what is the median relative ∆CER (%) at 3 bits for the Low resource tier?",
+    "answer": "39.0",
+    "aliases": [],
+    "position": 0.288
+  },
+  {
+    "id": "q4",
+    "question": "In Table 4, which model has the most negative Pearson correlation (rasr) between BFloat16 CER and log ASR pretraining hours?",
+    "answer": "Voxtral-S",
+    "aliases": [],
+    "position": 0.848
+  },
+  {
+    "id": "q5",
+    "question": "Applied to the 4-bit runs, what share of low-tier runs does the five-point absolute degradation threshold flag as degraded?",
+    "answer": "16.8%",
+    "aliases": [
+      "16.8"
+    ],
+    "position": 0.326
+  },
+  {
+    "id": "q6",
+    "question": "What Spearman correlation between parameter count and relative penalty is found when restricted to the Whisper models?",
+    "answer": "ρ=−0.88",
+    "aliases": [
+      "−0.88"
+    ],
+    "position": 0.398
+  },
+  {
+    "id": "q7",
+    "question": "How many hours of pretraining data does English have?",
+    "answer": "438,218 h",
+    "aliases": [
+      "438,218"
+    ],
+    "position": 0.77
+  },
+  {
+    "id": "q8",
+    "question": "Which low-resource-tier language is listed with 42.1 h of pretraining data?",
+    "answer": "Maltese",
+    "aliases": [],
+    "position": 0.785
+  },
+  {
+    "id": "q9",
+    "question": "What Kruskal–Wallis p-value do the differences between resource tiers obtain across the pooled runs?",
+    "answer": "p=0.45",
+    "aliases": [
+      "0.45"
+    ],
+    "position": 0.339
+  },
+  {
+    "id": "q10",
+    "question": "What share of runs does the degenerate-run filter remove at 3-bit?",
+    "answer": "8.2%",
+    "aliases": [],
+    "position": 0.809
+  }
+]

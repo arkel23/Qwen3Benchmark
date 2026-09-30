@@ -1,0 +1,15 @@
+{
+ "max_sentence_words": 25,
+ "forbidden": [
+  ";",
+  "\u2014",
+  " -- "
+ ],
+ "required": [
+  "\\BestAdherencePct{}",
+  "\\cite{burdisso_reducing_2026}",
+  "\\cite{fan_alignformer_2025}"
+ ],
+ "min_ratio": 0.6,
+ "max_ratio": 1.4
+}

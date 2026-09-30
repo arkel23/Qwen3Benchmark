@@ -1,0 +1,25 @@
+{
+  "max_words": 150,
+  "summary_scope": "first paper only: Application- and Hardware-Aware Backbones for Fine-Grained Image Recognition with Teacher-Guided Data Augmentation",
+  "key_facts": [
+    [
+      "teacher-guided data augmentation",
+      "tgda"
+    ],
+    [
+      "vitfs"
+    ],
+    [
+      "batchnorm"
+    ],
+    [
+      "never sees imagenet",
+      "from scratch",
+      "random initialisation"
+    ],
+    [
+      "counterfactual attention learning",
+      "part attention"
+    ]
+  ]
+}

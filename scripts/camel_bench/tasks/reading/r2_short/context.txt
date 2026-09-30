@@ -1,0 +1,1517 @@
+000
+
+How Does Regional Decoder Specialization Help Low-Resource ASR
+Based on the SLAM-ASR Framework?
+
+001
+002
+
+050
+051
+052
+
+003
+
+053
+
+004
+
+054
+
+005
+
+Anonymous ROCLING submission
+
+006
+
+055
+056
+
+007
+
+057
+
+008
+
+058
+
+009
+
+059
+
+010
+
+060
+
+011
+
+Abstract
+
+012
+
+The SLAM-ASR recipe — a frozen speech encoder, a frozen large language model as the decoder, and a small trainable projector between
+them — is a practical route for adding lowresource languages to speech systems, but the
+choice of decoder within it has not been studied
+under controlled conditions. We ask whether
+pairing each language with a regionally specialized decoder improves recognition, using
+the Tiny Aya family, whose four variants share
+one base model and one tokenizer and differ
+only in the regional weighting of their posttraining data. Across twelve languages, the
+region-matched decoder is only 0.55 character
+error rate (CER) better on average than mismatched regional decoders (Wilcoxon signedrank p = 0.97). This absence of a matcheddecoder advantage persists on held-out test sets,
+where the difference is −0.09 CER against a
+minimum detectable effect of 0.67. The advantage also does not grow with the amount
+of target-language data the decoder saw: for
+the median language, the matched variant saw
+just 1.3 percentage points more target-language
+data than the mismatched ones — at most 5.7 —
+though up to 236 times more in relative terms,
+and recognition accuracy tracks neither measure. What does matter is training the projector at all: on low-resource languages, it improves CER over off-the-shelf models by up
+to 102.6, including a language supported by
+neither frozen component. For practitioners, a
+general-purpose multilingual decoder suffices,
+and the effort is better spent on in-language
+audio. We will release all checkpoints.
+
+ASR (team et al., 2025) have expanded multilingual speech recognition to a growing number of languages. Despite this progress, substantial work remains on the breadth and diversity of low-resource
+languages and dialects, which has motivated recent
+studies of the failure modes of these systems in
+low-resource settings (Imam et al., 2025b; Kyslyi
+et al., 2026; Kumar et al., 2026; Bharathi et al.,
+2026; Azis et al., 2026).
+One recent direction addressing these constraints
+is the SLAM-ASR architecture (Ma et al., 2024),
+which connects a pretrained speech encoder to a
+large language model (LLM) through a trainable
+linear projector while keeping both pretrained models frozen. Follow-up work has probed the recipe’s
+robustness (Kumar et al., 2025), its data requirements (Fong et al., 2025), encoder depth (Kolluri et al., 2026), language-family effects (Zhang
+et al., 2026), and prompt sensitivity (Burdisso et al.,
+2026). However, the effect of the decoder’s regional specialization has not been studied. The
+Tiny Aya family (Salamanca et al., 2026) makes the
+missing experiment possible: small multilingual
+LLMs sharing a common base model and tokenizer,
+where each regional variant differs only in the posttraining data reinforcing its region’s languages.
+
+Keywords: speech recognition, SLAM-ASR,
+low-resource languages, decoder specialization,
+Tiny Aya
+
+1
+
+Introduction
+
+Automatic speech recognition (ASR) models such
+as Whisper (Radford et al., 2023) and Omnilingual
+
+1
+
+We ask three questions. RQ1: Does pairing a
+language with its region-matched decoder improve
+recognition over mismatched regional decoders or
+a general-purpose one? RQ2: If there is an effect,
+does it scale with how much of the target language
+the decoder actually saw — the exposure dose,
+rather than the region label? RQ3: Independent of
+the decoder choice, what does training the projector
+buy over off-the-shelf audio LLMs on low-resource
+languages?
+
+087
+
+Our contributions, over twelve languages spanning four orders of magnitude of encoder pretraining data:
+
+097
+
+098
+099
+
+100
+
+• The first controlled test of decoder regional
+specialization in SLAM-ASR (RQ1). Matching a language to its regional decoder does not
+measurably improve recognition. The result
+holds on held-out test sets, where any effect is
+smaller than 0.67 CER — the smallest difference the design can detect — and is supported
+by a run-to-run noise floor measured from
+replicate runs.
+
+once. The Tiny Aya family isolates the remaining
+variable: its variants share a base model and a tokenizer and differ only in the regional weighting of
+their post-training mix.
+Low-resource ASR. Surveys of African ASR describe a persistent shortage of transcribed audio
+and of evaluation resources (Imam et al., 2025a,b),
+recent work explores using ASR itself to bootstrap
+corpora for languages such as Fongbe and Hausa
+(Adjovi et al., 2026), and practitioner accounts report the same constraint (Klejch et al., 2025). Several of our study languages — including Marathi,
+Urdu, Hausa, Amharic and Kreol Seselwa — do
+not appear in the SLAM-ASR literature surveyed
+above, and Kreol Seselwa appears unstudied in
+this setting altogether; the checkpoints and transcripts we release provide baselines for them. The
+projector-only recipe suits this setting precisely because it asks for so little: no encoder training, no
+decoder training, and a component small enough
+to train on one GPU.
+
+• A measurement of the treatment itself (RQ2):
+matched decoders saw up to 236 times the
+target-language data of mismatched ones, and
+recognition accuracy does not track this exposure.
+
+• A practical positive result (RQ3): training the
+projector improves over off-the-shelf audio
+LLMs by up to 102.6 CER precisely on lowresource languages, including one supported
+by neither frozen component.
+
+• We will release all checkpoints and evaluation transcripts, so that the comparison can be
+extended and the released models can serve
+as baselines for further work on low-resource
+ASR within the SLAM-ASR framework.
+
+2
+
+3
+
+Method
+
+Our implementation follows the Encoder–
+Projector–Decoder architecture of SLAM-ASR
+(Ma et al., 2024), illustrated in Figure 1. A frozen
+encoder extracts acoustic representations from
+the input speech; a trainable linear projector
+downsamples and maps them into the decoder’s
+embedding space; the frozen LLM decoder
+autoregressively generates the transcription. Only
+the projector is optimized, which learns the
+alignment between speech representations and the
+language-model embedding space with a minimal
+number of trainable parameters.
+
+125
+126
+
+150
+
+Related Work
+
+Projector-based ASR. Ma et al. (2024) showed
+that a single trainable linear projector between a
+frozen speech encoder and a frozen LLM reaches
+competitive English recognition, and subsequent
+work has probed its robustness (Kumar et al., 2025),
+how much labelled audio it needs (Fong et al.,
+2025), how far the encoder can be pruned (Kolluri et al., 2026), how language-family structure
+affects it (Zhang et al., 2026), and its sensitivity to
+the training prompt (Burdisso et al., 2026). What
+these share is a fixed decoder.
+
+Decoder specialization. We use the Tiny Aya
+family (Salamanca et al., 2026) as the frozen decoder: four instruction-tuned variants of the same
+3.35B-parameter multilingual base model, sharing one tokenizer, so that swapping one variant
+for another changes only the composition of its
+post-training data. Tiny Aya Global is post-trained
+across all regions, while each regional variant
+reweights the mix toward one cluster of regions:
+Earth toward Europe, West Asia and Africa; Fire
+toward South Asia; and Water toward Europe, West
+Asia and Asia-Pacific. We assign each study language the region of its cluster in the report (Table 1).
+English is the one case where the label and the actual exposure disagree — the Fire mix contains
+
+Decoder selection. No prior work isolates what
+the decoder’s training data contains. Ma et al.
+(2024) ablate the decoder’s scale (TinyLlama-1.1B
+against LLaMA-7B), base against instruction-tuned
+checkpoints, and family (Phi-2, LLaMA, Vicuna)
+on English, and Fong et al. (2025) compare EuroLLM and Salamandra decoders at low resource,
+finding a large gap — 14.0 against 33.6 word error
+rate at ten hours of Italian — that narrows as data
+grows. These results show the decoder substantially affects recognition, but the models compared
+differ in scale, tokenizer and pretraining corpus at
+
+2
+
+Language WS train
+
+Region
+
+Tier Train h
+
+250
+
+201
+
+English
+en_us
+Spanish
+es_mx
+French
+fr_ca
+Indonesian id_id
+
+Water
+Water
+Water
+Water
+
+High ≥2708
+High
+969
+High
+1028
+High
+435
+
+251
+
+Hindi
+Marathi
+Tamil
+Urdu
+
+hi_in
+mr_in
+ta_in
+ur_pk+ur_in
+
+Fire
+Fire
+Fire
+Fire
+
+209
+
+Amharic
+Hausa
+Swahili
+
+am_et
+Earth
+ha_ng+ha_td Earth
+sw_ke+sw_tz Earth
+
+210
+
+Seselwa
+
+crs_sc
+
+–
+
+High ≥1939
+Mid
+216
+Very Low
+35
+Low
+85
+Very Low
+Mid
+High
+
+38
+126
+1050
+
+High
+
+1510
+
+Table 1: Training configuration (WS = WorldSpeech):
+Tiny Aya region assignment, resource tier and unique
+training-audio hours per language, following the report’s
+own region assignment. ≥ marks languages whose
+stream was never exhausted, so the figure is a floor.
+
+probe what the projector alone can learn. Resource
+tiers group the languages by unique training-audio
+hours: Very Low below 50, Low 50–100, Mid 100–
+300, and High above 300. Hours are estimated
+from the training logs, except Marathi’s, measured
+directly from the corpus duration column (216 h).
+Checkpoints are selected on the FLEURS (Conneau et al., 2023) validation split, with two exceptions: Hausa is selected on the WorldSpeech test
+split, its FLEURS validation split being impractically large to evaluate repeatedly, and Seselwa —
+which FLEURS does not cover — on a held-out
+2% split of its WorldSpeech data, sized to match a
+FLEURS validation split. Final evaluation uses the
+held-out FLEURS test and WorldSpeech test splits.
+
+225
+226
+
+Figure 1: The LisTAya composition: a frozen speech
+encoder, a trainable audio–text projector, and a frozen
+Tiny Aya auto-regressive decoder. Only the projector
+is trained. AT and TT stand for Audio Token and Text
+Token, respectively.
+
+46.2% English against Water’s 17.0% — and Section 5.2 returns to it. This design is what makes
+the comparison causal: across all experiments the
+encoder and projector recipe are identical, and only
+the decoder variant changes. We call the resulting
+models LisTAya (Listening Tiny Aya) and hereafter refer to the variants simply as Earth, Fire,
+Water and Global.
+
+4
+
+236
+237
+
+255
+
+267
+
+217
+
+224
+
+254
+
+266
+
+216
+
+223
+
+253
+
+261
+
+211
+
+222
+
+252
+
+Experimental Setup
+
+Datasets and languages. We train on WorldSpeech (Asonitis et al., 2026), a corpus of formal speech from parliamentary proceedings, international broadcasts and public-domain audiobooks, excluding clips of 30 seconds or longer.
+The study covers twelve languages (Table 1): four
+from the Water region (English, French, Spanish,
+Indonesian), four from Fire (Hindi, Marathi, Tamil,
+Urdu), three from Earth (Amharic, Hausa, Swahili),
+and Kreol Seselwa (Seychellois Creole; hereafter
+Seselwa), an African language supported by neither
+the encoder nor any Tiny Aya decoder, included to
+
+3
+
+Training. Every run trains only the projector
+with AdamW at learning rate 1.5 × 10−3 , batch
+size 8 with gradient accumulation 64 (effective
+batch 512), 1,000 steps, no weight decay, on one
+NVIDIA H200 GPU, with CER evaluated every
+10 steps (101 evaluations per run). The grid is 12
+languages × 4 decoders = 48 runs. Amharic and
+Seselwa across all four decoders — eight cells —
+were trained twice with different seeds, giving replicate pairs from which we measure the run-to-run
+noise floor directly.
+
+283
+
+Baselines and metrics. We compare against
+three off-the-shelf models evaluated on the same
+test sets: Whisper-Medium (Radford et al., 2023)
+— the same model as our encoder, chosen for
+its accuracy–speed tradeoff (Ma et al., 2024) —
+Voxtral-Mini-3B (Mistral AI, 2025) and Qwen2-
+
+294
+
+Audio-7B (Chu et al., 2024). CER is the primary
+metric throughout, and per-language error rates are
+never pooled across languages. Paired contrasts use
+the Wilcoxon signed-rank test (Wilcoxon, 1945),
+a non-parametric paired test over the per-language
+differences that does not assume they are normally
+distributed.
+
+308
+
+5
+
+Results
+
+309
+
+5.1
+
+Regional matching does not change what
+the model hears
+
+the ten African languages sum to 0.1% of the Fire
+mix (0.010% apiece), and South Asia sums to 0.3%
+of Water against 0.1% each for Hindi and Marathi,
+leaving 0.017% apiece for the remaining six.
+The effect scales with neither characterisation.
+Regressing the per-language effect on the log exposure ratio gives Spearman ρ = −0.39 on the
+selection curve and −0.04 on held-out in-domain
+data; the strongest association anywhere is Pearson
+r = −0.51 (p = 0.11). Even though exposure
+varies by a factor of roughly 400 across these languages, recognition accuracy does not follow it.
+English is the informative exception to the labels.
+It is a Water language, but the Fire mix contains
+46.2% English against Water’s 17.0%, so English
+is the one language whose matched decoder saw
+substantially less of it — and English is also the
+single language where the matched decoder does
+worst (+7.39 CER). Where the region label and
+the actual exposure disagree, the outcome follows
+the exposure.
+
+Table 2 reports, for each language, the best CER
+of the region-matched decoder against the mean of
+the two mismatched regional decoders and against
+Global. Across the eleven languages covered by a
+Tiny Aya region, the matched decoder is 0.55 CER
+better on average, with a 95% bootstrap confidence
+interval of [−3.89, 1.99]; a Wilcoxon signed-rank
+test — a paired significance test over the eleven perlanguage differences — finds no significant difference (p = 0.97). The matched decoder is favoured
+by six of eleven languages. Figure 2 shows the
+same picture across whole training trajectories.
+Two reference numbers say how to read this
+null result. The first is the design’s detection limit:
+given how much the per-language differences vary,
+a paired test at the usual 5% significance level with
+80% power would only reliably detect a true advantage of at least 4.90 CER. The second is training
+noise: retraining the same configuration with a different seed changes its best CER by 0.89 on average
+(the between-run standard deviation over the eight
+replicate pairs). The observed 0.55 CER advantage
+is below the detection limit, and smaller than the
+difference between two identical runs.
+5.2
+
+5.3
+
+The null replicates on held-out test sets
+
+The contrast above is measured on the curve each
+checkpoint was selected against. Evaluating all
+four decoders on the held-out test sets repeats it on
+data no checkpoint was chosen for. On FLEURS
+test the matched decoder is 0.67 CER better on average (p = 0.83); on the in-domain WorldSpeech test
+it is 1.71 CER worse (p = 0.70). Urdu’s in-domain
+test is the one cell where no decoder transcribes
+at all (the best of the four sits at 75.3 CER against
+36.6 for the next-worst cell); setting it aside leaves
+−0.02 CER over ten languages with a minimum
+detectable effect of 0.44. Restricting instead to the
+seven languages the manipulation actually treats —
+English, Spanish, French and Urdu appear in every
+regional mix, with exposure ratios of 0.53–2.72
+against 20 or more for the rest — gives −0.09 CER
+(p = 0.69) against a minimum detectable effect of
+0.67 CER.
+Two observations complete the picture. The
+sign of the effect is not stable across evaluation
+sets (−0.55 selection, −0.67 FLEURS, +1.71 indomain), which is what noise looks like. And the
+two largest per-language effects are properties of
+the read-speech benchmark rather than of the decoder: Tamil favours its matched decoder by 14.70
+CER on the selection curve and 19.58 on FLEURS
+test, but by +0.02 on its own in-domain test; English moves from +7.39 to +0.19.
+
+Differences in target-language exposure
+
+A null invites the question of whether the treatment was large enough to detect, and the Tiny Aya
+report’s own composition tables answer it in two
+ways (Table 3). In absolute terms the treatment is
+small: the matched variant saw a median of 1.3
+percentage points more of the target language than
+the mismatched variants did. In relative terms it
+is not: the matched variant saw 236 times more
+Amharic, Hausa or Swahili than the mismatched
+ones, and 204 times more Tamil, with six of eleven
+languages above a factor of twenty. The report
+rounds shares to one decimal place, so for four languages the mismatched share is below 0.05% and
+is recovered from the printed per-region subtotals:
+
+4
+
+450
+
+401
+
+451
+
+402
+
+452
+
+403
+
+453
+
+404
+
+454
+
+405
+
+455
+
+406
+
+456
+
+407
+
+457
+
+408
+
+458
+
+409
+
+459
+
+410
+
+460
+
+411
+
+461
+
+412
+
+462
+
+413
+
+463
+
+414
+
+464
+
+415
+
+465
+
+416
+
+466
+
+417
+
+467
+
+418
+
+468
+
+419
+
+469
+
+420
+
+470
+
+421
+
+471
+472
+
+422
+423
+424
+
+Figure 2: CER against processed audio for every language and decoder variant. Each run is evaluated 101 times, so
+the curves show whole trajectories. The four variants track one another closely within each language, while the
+languages themselves span two orders of magnitude of error.
+
+476
+
+426
+
+5.4
+
+low small (median +3.7 CER) and the wins above
+not: Amharic improves by 102.6 CER in-domain
+and 78.7 on FLEURS, Seselwa by 68.9, Hausa by
+45.4, Tanzanian Swahili by 32.0.
+Seselwa is the cleanest single case, since neither frozen component supports it. Of the three
+off-the-shelf models, two fail to produce output on
+it at all, and the third reaches 85.18 CER; a trained
+projector reaches 16.28. On the held-out test the
+four decoder variants land within 0.50 CER of one
+another (16.28–16.78), so which regional variant
+is paired with it matters as little there as elsewhere:
+the projector learns a usable alignment for a language absent from both pretraining corpora.
+
+Training volume predicts overfitting
+
+While the decoder variant does not separate the
+runs, the amount of in-language audio does. Table 4 groups the runs by resource tier: the rise in
+evaluation loss after its own minimum — overfitting, measured without reference to the training
+distribution — falls monotonically from 0.211 in
+the very-low tier to 0.003 in the high tier, and the
+lowest-resource cells reach their best evaluation
+loss roughly a quarter of the way into training. Lowresource cells need early stopping; high-resource
+cells barely overfit at all.
+
+474
+475
+
+425
+
+427
+
+473
+
+5.5
+
+What projector training buys
+
+5.6
+
+Table 5 compares the best trained checkpoint
+against the strongest off-the-shelf model on each
+held-out test set. Training wins where the off-theshelf models were failing: the benefit tracks how
+badly the best baseline was already doing (Spearman ρ = −0.42, p = 0.005 over all 43 evaluated
+cells), and splitting at the median baseline CER
+of 15.8, the projector wins 12 of the 22 cells at or
+above it and 3 of the 21 below, with the losses be-
+
+The gains do not transfer across dialect
+
+WorldSpeech ships several country varieties per language, and the study trained on only some of them,
+so each trained checkpoint can also be evaluated
+on varieties it never saw (Table 6). On the eighteen
+genuinely held-out varieties, the projector beats the
+best off-the-shelf model on none, at a median cost
+of 4.1 CER — against 9 of 12 wins on the varieties
+it trained on. The result should be read alongside
+
+5
+
+Fire Water Global
+
+∆
+
+English
+Spanish
+French
+Indonesian
+
+4.98
+3.37
+6.37
+6.42
+
+4.35
+3.32
+7.21
+5.85
+
+12.05
+3.41
+6.36
+5.74
+
+4.96
+3.40
+6.61
+6.05
+
+7.39
+0.07
+-0.43
+-0.40
+
+Hindi
+Marathi
+Tamil
+Urdu
+
+12.36
+13.81
+56.76
+20.28
+
+13.11
+13.57
+43.63
+22.24
+
+11.74
+14.21
+59.89
+21.33
+
+13.18
+1.06
+14.14 -0.44
+61.21 -14.70
+17.64
+1.44
+
+556
+
+Amharic
+Hausa
+Swahili
+
+29.25 31.01
+33.43 34.37
+13.53 13.59
+
+24.85
+34.86
+13.76
+
+27.00
+35.03
+12.60
+
+560
+
+551
+
+1.32
+-1.19
+-0.15
+
+515
+516
+
+Table 2: Best CER per language for each decoder variant; the region-matched variant is bold. ∆ is the matched CER
+minus the mean of the other two regional variants; negative favours the matched decoder. Languages are grouped by
+their Tiny Aya region, as in Table 1.
+
+517
+
+Language
+
+518
+
+English
+Spanish
+French
+Indonesian
+
+Hindi
+Marathi
+Tamil†
+Urdu
+
+Amharic†
+Hausa†
+Swahili†
+
+528
+529
+
+Earth Fire Water Global Ratio ∆ CER
+18.1 46.2
+2.2 0.2
+2.3 0.2
+0.1 0.1
+0.1
+0.1
+0.0167
+1.3
+
+17.0
+2.1
+2.2
+2.0
+
+5.8
+0.1
+3.7
+0.1
+3.4 0.0167
+3.4
+1.2
+
+1.3 0.01
+1.3 0.01
+1.3 0.01
+
+0.001
+0.001
+0.001
+
+13.8
+1.7
+1.8
+1.6
+
+532
+533
+
+554
+555
+
+557
+558
+559
+
+561
+562
+
+7.39
+0.07
+-0.43
+-0.40
+
+569
+
+1.7 58.0
+1.1 37.0
+1.0 204.0
+1.0
+2.7
+
+1.06
+-0.44
+-14.70
+1.44
+
+573
+
+1.0 236.4
+1.0 236.4
+1.0 236.4
+
+1.32
+-1.19
+-0.15
+
+570
+571
+572
+
+Table 3: Each decoder variant’s post-training share of the target language (%), from the Tiny Aya report; the
+region-matched variant is bold. Ratio is the matched share over the mean of the other two regional variants. † marks
+a language with a share below the report’s 0.05% reporting threshold, recovered from its region subtotal.
+
+534
+535
+
+553
+
+0.5
+1.8
+1.8
+20.0
+
+530
+531
+
+552
+
+563
+
+513
+514
+
+550
+
+Language Earth
+
+the languages involved: seventeen of the eighteen
+held-out varieties belong to English, Spanish and
+French, high-resource languages where even the
+trained variety gained at most 2.7 CER over the
+baseline — so there was little advantage available
+to transfer. Whether projector gains transfer across
+varieties of a low-resource language, where the
+gains are tens of CER, is an open question this data
+cannot answer.
+
+6
+
+Tiny Aya decoder over a mismatched one moves
+CER by less than the difference between two runs
+of the same configuration, and the null replicates
+on held-out data with a bound eleven times tighter
+than the selection curve’s. What does move the
+result is whether a projector is trained at all, and
+how much in-language audio is available to train it.
+
+What the negative result does and does not show.
+Our result is limited to the differences that exist
+within this model family. Those differences are
+small in absolute terms (a median of 1.3 percentage
+points of post-training data) but large in relative
+terms (up to 236 times more target-language data),
+and accuracy follows neither. Decoder choice can
+
+Discussion
+
+What a practitioner should take from this. If
+the goal is to add a low-resource language to a
+speech interface, the decoder variant is not where
+the decision lies. Choosing the regionally matched
+
+6
+
+Tier
+
+601
+
+Very Low
+Low
+Mid
+High
+
+602
+603
+
+Languages Loss rise Fraction to best
+2
+1
+2
+7
+
+0.211
+0.188
+0.041
+0.003
+
+0.282
+0.292
+0.627
+0.816
+
+Table 4: Overfitting by resource tier. Loss rise: how
+much evaluation loss increases after its own minimum
+(larger = more overfitting). Frac. to best: how far into
+training the minimum occurs. Both are medians of perlanguage medians, so a tier with seven languages cannot
+outweigh one with two.
+
+still matter between model families: Fong et al.
+(2025) report large gaps between EuroLLM and
+Salamandra. What our result says is that for a
+practitioner choosing among the released variants
+of one family, the regional label is not the deciding
+factor. English, the one language whose label and
+exposure disagree, follows the exposure — so if
+specialization matters anywhere, it is where the
+data difference is tens of percentage points, not
+one.
+
+5.5
+9.4
+3.1
+8.9
+7.5
+8.2
+5.9
+10.9
+
+3.4
+-0.6
+1.8
+0.4
+5.4
+-2.7
+2.6
+-3.0
+
+651
+
+13.7
+25.8
+14.4
+10.3
+48.3
+15.4
+20.0
+74.1
+
+8.0
+1.3
+-5.1
+-8.3
+32.1
+-3.0
+8.3
+28.1
+
+English
+FLEURS (OOD)
+English
+WS (ID)
+Spanish
+FLEURS (OOD)
+Spanish
+WS (ID)
+French
+FLEURS (OOD)
+French
+WS (ID)
+Indonesian FLEURS (OOD)
+Indonesian WS (ID)
+
+2.1
+10.0
+1.3
+8.5
+2.1
+10.9
+3.3
+13.9
+
+Hindi
+Hindi
+Marathi
+Marathi
+Tamil
+Tamil
+Urdu
+Urdu
+
+FLEURS (OOD)
+WS (ID)
+FLEURS (OOD)
+WS (ID)
+FLEURS (OOD)
+WS (ID)
+FLEURS (OOD)
+WS (ID)
+
+5.7
+24.5
+19.5
+18.6
+16.2
+18.4
+11.7
+46.0
+
+Amharic
+Amharic
+Hausa
+Hausa
+Swahili
+Swahili
+
+FLEURS (OOD) 111.6
+WS (ID)
+133.1
+FLEURS (OOD) 55.9
+WS (ID)
+82.0
+FLEURS (OOD) 26.3
+WS (ID)
+18.6
+
+32.9 -78.7
+30.5 -102.6
+39.1 -16.8
+36.6 -45.4
+15.1 -11.2
+14.5
+-4.1
+
+Seselwa
+
+WS (ID)
+
+16.3
+
+85.2
+
+-68.9
+
+The frozen decoder is doing less work than its
+size suggests. Seselwa is supported by neither
+frozen component, and the projector still reaches error rates comparable to the low-resource end of the
+supported languages, with the four variants within
+0.50 CER of one another. Whatever the decoder
+contributes, it is not primarily language-specific
+knowledge of the target language — consistent
+with the region labels making so little difference
+everywhere else.
+
+7
+
+650
+
+Base. Trained
+
+Table 5: CER of the best off-the-shelf model against the
+best trained checkpoint on each language’s held-out test
+sets: WS (ID) is the in-domain WorldSpeech test split,
+FLEURS (OOD) the out-of-domain FLEURS test split.
+Negative (teal) ∆ favours the trained projector.
+
+621
+622
+
+∆
+
+Language Test set
+
+points and transcripts so the comparison can be
+extended to other decoder families, where the differences between models are larger — and because
+a SLAM-ASR model, unlike a traditional ASR system, can be further instruction-tuned for tasks such
+as summarization, question answering or sentiment
+analysis, these checkpoints are also groundwork
+for extending these low-resource languages beyond
+transcription.
+
+Conclusion
+
+We asked whether pairing a language with its
+regionally specialized decoder improves speech
+recognition in the SLAM-ASR framework. Across
+twelve languages and four Tiny Aya decoders, it
+does not. The matched decoder is 0.55 CER better on average (p = 0.97), the result repeats on
+held-out test sets, and giving a decoder more targetlanguage data — up to 236 times more — does
+not improve its recognition of that language. What
+does matter is training the projector at all. On
+low-resource languages, the trained projector improves over off-the-shelf models by up to 102.6
+CER, including on Seselwa, a language neither
+frozen component supports. The practical advice
+is simple: a general-purpose multilingual decoder
+is enough, and the effort is better spent on collecting in-language audio. We will release all check-
+
+Limitations
+Most cells are trained once; eight of the 48 grid
+runs have a replicate — the two languages retrained
+across all four decoders — which is what lets us
+state a between-run standard deviation, but the remaining cells carry no direct uncertainty estimate.
+All cells share a single conservative learning rate
+and seed. Of the twelve languages, ten train on
+WorldSpeech and evaluate on FLEURS, so most
+reported numbers combine decoder choice with
+a domain shift; we report in-domain test results
+alongside, but the two are not separable in every
+cell. Furthermore, we use the human transcript
+for the WorldSpeech dataset, which may not be
+completely accurate for all passages in the train-
+
+7
+
+Variety Language Base. Trained
+
+701
+
+en_au
+en_jm
+en_ke
+en_nz
+en_pk
+en_sl
+en_zm
+es_ar
+es_cl
+es_co
+es_es
+es_pe
+es_pr
+es_py
+es_uy
+fr_cd
+fr_ci
+
+English
+English
+English
+English
+English
+English
+English
+Spanish
+Spanish
+Spanish
+Spanish
+Spanish
+Spanish
+Spanish
+Spanish
+French
+French
+
+9.5
+7.6
+19.5
+8.5
+78.5
+14.1
+15.8
+20.0
+19.6
+11.8
+7.4
+6.6
+9.5
+8.7
+20.7
+7.2
+7.8
+
+14.9
+5.4
+9.5
+1.9
+23.8
+4.3
+17.3
+8.8
+422.9 344.4
+20.3
+6.2
+21.4
+5.6
+22.0
+2.0
+23.1
+3.5
+15.2
+3.4
+13.0
+5.6
+10.4
+3.8
+12.2
+2.7
+12.4
+3.7
+23.5
+2.8
+10.9
+3.7
+13.2
+5.4
+
+ta_lk
+ur_in†
+
+Tamil
+Urdu
+
+64.3
+20.2
+
+69.1
+17.4
+
+sw_tz†
+
+Swahili
+
+45.5
+
+13.5 -32.0
+
+∆
+
+4.8
+-2.8
+
+B Bharathi, Bharathi Raja Chakravarthi, Shunmuga Priya Muthusamy Chinnan, S Saranya, and
+S Suhasini. 2026. Findings in Tamil Dialect Speech
+Recognition and Classification. In Proceedings of the
+Sixth Workshop on Speech and Language Technologies for Dravidian Languages (DravidianLangTech2026).
+
+753
+
+Yunfei Chu, Jin Xu, Qian Yang, Haojie Wei, Xipin Wei,
+Zhifang Guo, Yichong Leng, Yuanjun Lv, Jinzheng
+He, Junyang Lin, Chang Zhou, and Jingren Zhou.
+2024. Qwen2-audio technical report. Preprint.
+ArXiv:2407.10759.
+
+Table 6: Country varieties held out from training: CER
+of the best off-the-shelf model against the best trained
+checkpoint of the parent language. Negative (teal) ∆
+favours the trained projector. † marks the two varieties
+that were part of their language’s training stream and
+are therefore not held out.
+
+748
+749
+
+752
+
+ing data. Of the eleven exposure ratios, four rest
+on values recovered from the Tiny Aya report’s region subtotals rather than read directly, because the
+printed share rounds to 0.0; the recovered values
+are constrained by the printed subtotals and the
+conclusions are unchanged across the range those
+constraints permit, but they are estimates. Finally,
+the study measures transcription only; whether decoder specialization affects downstream spokenlanguage understanding, where the decoder’s own
+multilingual knowledge is more directly exercised,
+is not addressed.
+
+Alexis Conneau, Min Ma, Simran Khanuja, Yu Zhang,
+Vera Axelrod, Siddharth Dalmia, Jason Riesa, Clara
+Rivera, and Ankur Bapna. 2023. FLEURS: FEWShot Learning Evaluation of Universal Representations of Speech. In 2022 IEEE Spoken Language
+Technology Workshop (SLT), pages 798–805.
+
+772
+
+Seraphina Fong, Marco Matassoni, and Alessio Brutti.
+2025. Speech LLMs in Low-Resource Scenarios:
+Data Volume Requirements and the Impact of Pretraining on High-Resource Languages. In Proc. Interspeech 2025, pages 2003–2007.
+
+777
+
+Sukairaj Hafiz Imam, Tadesse Destaw Belay,
+Kedir Yassin Husse, Ibrahim Said Ahmad, Idris
+Abdulmumin, Hadiza Ali Umar, Muhammad Yahuza
+Bello, Joyce Nakatumba-Nabende, Seid Muhie
+Yimam, and Shamsuddeen Hassan Muhammad.
+2025a. Automatic Speech Recognition (ASR) for
+African Low-Resource Languages: A Systematic
+Literature Review. arXiv:2510.01145.
+
+References
+
+Mahounan Pericles Adjovi, Victor Olufemi, Roald
+Eiselen, and Prasenjit Mitra. 2026. From Speech
+to Text Corpora: Evaluating ASR-Based Data Acquisition for Low-Resource Fongbe and Hausa.
+arXiv:2606.22274.
+Antonis Asonitis, Luca A. Lanzendörfer, Frédéric
+Berdoz, and Roger Wattenhofer. 2026. WorldSpeech:
+A Multilingual Speech Corpus from Around the
+World.
+
+Sukairaj Hafiz Imam, Babangida Sani, Dawit Ketema
+Gete, Bedru Yimam Ahamed, Ibrahim Said Ahmad,
+Idris Abdulmumin, Seid Muhie Yimam, Muhammad Yahuza Bello, and Shamsuddeen Hassan
+Muhammad. 2025b. Automatic Speech Recognition
+for African Low-Resource Languages: Challenges
+and Future Directions. In Proceedings of the Sixth
+Workshop on African Natural Language Processing
+(AfricaNLP), pages 89–94.
+
+Huzain Azis, Muh Fatwah Fajriansyah M, Herdianti
+Darwis, Purnawansyah, Tasrif Hasanuddin, and Sugiarti. 2026. Development of a Low-Resource Automatic Speech Recognition System for the Makassar
+
+Ondřej Klejch, William Lamb, and Peter Bell. 2025.
+A Practitioner’s Guide to Building ASR Models for
+Low-Resource Languages: A Case Study on Scottish
+Gaelic. In Proc. Interspeech 2025, pages 728–732.
+
+746
+747
+
+751
+
+771
+
+736
+737
+
+750
+
+Sergio Burdisso, Esaú Villatoro-Tello, Shashi Kumar, Srikanth Madikeri, Andrés Carofilis, Pradeep
+Rangappa, Manjunath K E, Kadri Hacioglu, Petr
+Motlicek, and Andreas Stolcke. 2026. Reducing
+Prompt Sensitivity in LLM-Based Speech Recognition Through Learnable Projection. In ICASSP 2026
+- 2026 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP), pages
+16372–16376.
+
+723
+724
+
+Dialect. In 2026 20th International Conference on
+Ubiquitous Information Management and Communication (IMCOM), pages 1–8.
+
+8
+
+Ganesh Pavan Kartikeya Bharadwaj Kolluri, Michael
+Kampouridis, and Ravi Shekhar. 2026. On the Role
+of Encoder Depth: Pruning Whisper and LoRA FineTuning in SLAM-ASR.
+Chowdam Venkata Kumar, Kumud Tripathi, and Pankaj
+Wasnik. 2026. Overcoming Decoder Inconsistencies
+in Whisper for Dravidian and Low-Resource Languages.
+
+853
+854
+
+857
+858
+
+Roman Kyslyi, Artem Orlovskyi, Pavlo Khomenko,
+Bohdan Onyshchenko, and Zakhar Guzii. 2026.
+Building ASR Resources for the Hutsul Dialect of
+Ukrainian. In Proceedings of the 13th Workshop on
+NLP for Similar Languages, Varieties and Dialects
+(VarDial).
+
+863
+
+Ziyang Ma, Guanrou Yang, Yifan Yang, Zhifu Gao, Jiaming Wang, Zhihao Du, Fan Yu, Qian Chen, Siqi
+Zheng, Shiliang Zhang, and Xie Chen. 2024. An Embarrassingly Simple Approach for LLM with Strong
+ASR Capacity.
+Mistral AI. 2025.
+ArXiv:2507.13264.
+
+Voxtral.
+
+Preprint.
+
+874
+875
+
+Alec Radford, Jong Wook Kim, Tao Xu, Greg Brockman, Christine McLeavey, and Ilya Sutskever. 2023.
+Robust Speech Recognition via Large-Scale Weak
+Supervision. In Proceedings of the 40th International
+Conference on Machine Learning (ICML).
+
+Alejandro R. Salamanca, Diana Abagyan, Daniel
+D’souza, Ammar Khairi, David Mora, Saurabh Dash,
+Viraat Aryabumi, Sara Rajaee, Mehrnaz Mofakhami,
+Ananya Sahu, Thomas Euyang, Brittawnya Prince,
+Madeline Smith, Hangyu Lin, Acyr Locatelli, Sara
+Hooker, Tom Kocmi, Aidan Gomez, Ivan Zhang, Phil
+Blunsom, Nick Frosst, Joelle Pineau, Beyza Ermis,
+Ahmet Üstün, Julia Kreutzer, and Marzieh Fadaee.
+2026. Tiny Aya: Bridging Scale and Multilingual
+Depth.
+
+838
+839
+
+852
+
+Shashi Kumar, Iuliia Thorbecke, Sergio Burdisso, Esaú
+Villatoro-Tello, Manjunath K. E, Kadri Hacioğlu,
+Pradeep Rangappa, Petr Motlicek, Aravind Ganapathiraju, and Andreas Stolcke. 2025. Performance
+evaluation of SLAM-ASR: The Good, the Bad, the
+Ugly, and the Way Forward.
+
+825
+826
+
+Yuchen Zhang, Ravi Shekhar, and Haralambos Mouratidis. 2026. Language Family Matters: Evaluating
+LLM-Based ASR Across Linguistic Boundaries.
+
+851
+
+856
+
+818
+819
+
+850
+
+855
+
+807
+808
+
+Frank Wilcoxon. 1945. Individual comparisons by ranking methods. Biometrics Bulletin, 1(6):80–83.
+
+Omnilingual ASR team, Gil Keren, Artyom
+Kozhevnikov, Yen Meng, Christophe Ropers,
+Matthew Setzler, Skyler Wang, Ife Adebara, Michael
+Auli, Can Balioglu, Kevin Chan, Chierh Cheng,
+Joe Chuang, Caley Droof, Mark Duppenthaler,
+Paul-Ambroise Duquenne, Alexander Erben,
+Cynthia Gao, Gabriel Mejia Gonzalez, Kehan
+Lyu, Sagar Miglani, Vineel Pratap, Kaushik Ram
+Sadagopan, Safiyyah Saleem, Arina Turkatenko,
+Albert Ventayol-Boada, Zheng-Xin Yong, Yu-An
+Chung, Jean Maillard, Rashel Moritz, Alexandre
+Mourachko, Mary Williamson, and Shireen Yates.
+2025. Omnilingual ASR: Open-Source Multilingual
+Speech Recognition for 1600+ Languages.
+
+9

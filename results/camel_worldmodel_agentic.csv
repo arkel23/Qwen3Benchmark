@@ -1,0 +1,5 @@
+model_id,task,tier,repeat,wall_s,file_written,tests_passed,tests_total,numbers_match,objective_score,loc,reference_loc,comment_lines,docstring_lines,style_flags,detail
+M1,W1_render,T1,0,3600,0,0,0,,0.0,,,,,,
+M1,W1_render,T3,0,293,0,0,0,,0.0,,,,,,
+M1,W1_render,T3,0,3600,1,1,1,,1.0,54,37,6,4,,"1 passed, 1 skipped, 48 deselected in 2.52s"
+M2,W1_render,T3,0,3600,1,1,1,,1.0,41,37,1,9,,"1 passed, 1 skipped, 48 deselected in 2.70s"

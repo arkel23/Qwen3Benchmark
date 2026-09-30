@@ -1,0 +1,84 @@
+[
+  {
+    "id": "q1",
+    "question": "In the ViTFS / teacher-guided data augmentation (MMSys) paper, what CUB top-1 accuracy is obtained at β = 0.02 in the KD loss weight sweep?",
+    "answer": "74.56",
+    "aliases": [],
+    "position": 0.106
+  },
+  {
+    "id": "q2",
+    "question": "How many pretrained checkpoints does the large-scale study on backbone and training and evaluation settings release?",
+    "answer": "825 pretrained checkpoints",
+    "aliases": [
+      "825"
+    ],
+    "position": 0.145
+  },
+  {
+    "id": "q3",
+    "question": "In the large-scale backbone study, what relative increase in training time does CALMix incur over the frozen setting?",
+    "answer": "1632%",
+    "aliases": [],
+    "position": 0.208
+  },
+  {
+    "id": "q4",
+    "question": "In the cultivar identification paper, how many images does the pooled warmup corpus contain?",
+    "answer": "24,367",
+    "aliases": [],
+    "position": 0.401
+  },
+  {
+    "id": "q5",
+    "question": "In the Mandarin quantization paper, to what median CER does Qwen2.5-Omni collapse at HQQ2 on the short-form corpus?",
+    "answer": "1575.4",
+    "aliases": [],
+    "position": 0.583
+  },
+  {
+    "id": "q6",
+    "question": "In the configurable token reduction FPGA accelerator paper, how many frames per second does the design reach at 224 × 224?",
+    "answer": "5291",
+    "aliases": [
+      "5291 FPS"
+    ],
+    "position": 0.668
+  },
+  {
+    "id": "q7",
+    "question": "In the ternary LLM decoder paper, how large is the Bonsai-4B decoder as built?",
+    "answer": "1,482 MB",
+    "aliases": [
+      "1,482"
+    ],
+    "position": 0.826
+  },
+  {
+    "id": "q8",
+    "question": "In the zero-shot spoken language understanding paper, what mean instruction following rate does the digit template reach?",
+    "answer": "81.3%",
+    "aliases": [
+      "81.3"
+    ],
+    "position": 0.866
+  },
+  {
+    "id": "q9",
+    "question": "In the zero-shot spoken language understanding paper, how many hours of audio was the Qwen2-Audio-7B baseline trained on?",
+    "answer": "520k hours",
+    "aliases": [
+      "520k"
+    ],
+    "position": 0.87
+  },
+  {
+    "id": "q10",
+    "question": "In the BAQET paper, how many trials does the simulated-annealing search run?",
+    "answer": "2,000 trials",
+    "aliases": [
+      "2,000"
+    ],
+    "position": 0.979
+  }
+]

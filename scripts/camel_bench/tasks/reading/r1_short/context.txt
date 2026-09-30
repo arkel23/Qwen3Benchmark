@@ -1,0 +1,676 @@
+Model Capacity Dominates Language Resourcing
+in Multilingual ASR Quantization
+
+Anonymous Author(s)
+Affiliation
+Address
+email
+
+Abstract
+Multilingual Automatic Speech Recognition (ASR) accuracy is correlated to how
+much pretraining data a language had. A previous study reports that quantization
+further compounds the gap between high- and low-resource languages. We show
+that this conclusion is a property of how degradation was measured, an absolute
+threshold on the error increase and we ask what governs quantization fragility
+instead. On 18 ASR and audio-language models, we evaluate the effect of posttraining quantization (HQQ at 8, 6, 4, and 3 bits) against the BFloat16 baseline
+across 25 European languages. We find that the amount of pretraining data has
+little explanatory power for the quantization penalty, while model capacity is
+significantly more important. Across the Whisper scaling ladder, the relative
+CER penalty at 4 bits falls from 129.3% for Whisper-T to 2.8% for Whisper-Lv3.
+This capacity effect becomes stronger as the bit-width decreases. Overall, model
+capacity has a greater impact on quantization robustness than the choice of HQQ
+bit-width, particularly for the larger models.
+
+1
+
+Introduction
+
+Whisper-style models [Radford et al., 2023] and audio-language models [Chu et al., 2024, Xu
+et al., 2025, Liu et al., 2025] enable ASR for dozens of languages, but quality is highly uneven.
+High-resource languages reach single-digit error rates while low-resource languages lag far behind.
+Deployment introduces another concern through quantization, raising the possibility that the two
+inequalities compound. That concern is well studied in text: 4-bit machine translation and quantized
+multilingual LLMs degrade sharply for low-resource and non-Latin-script languages [Marchisio et al.,
+2024, Marie and Fujita, 2025]. For speech, Ferraz [2024] reports the same pattern, with low-resource
+languages appearing to be the most adversely affected by quantization.
+We find that this apparent disparity is a property of the measurement rather than of quantization.
+Ferraz [2024] classifies an utterance as degraded when its error rate rises by more than five points,
+measured with LLM.int8() [Dettmers et al., 2022] at 8-bit. A fixed absolute threshold flags the
+languages with the highest baselines, regardless of what quantization does to them. And baselines
+here differ by an order of magnitude depending on the hours of pretraining data a language received,
+which we called resourcing. Separating the absolute penalty from the relative one dissolves the effect.
+The absolute penalty grows as resourcing falls in proportion to the baseline, while the relative penalty
+varies by much less. CER also falls log-linearly with pretraining hours, with Pearson correlations of
+-0.60 to -0.73 across the leading models, and every family’s median CER is at least three times higher
+in the low tier than in the high tier (Appendix C). This raises a natural question: does quantization
+further widen this existing gap?
+Our design makes that separation trustworthy. Every quantized evaluation is paired with its own
+BFloat16 baseline on the same (model, dataset), so each delta compares one checkpoint against itself
+
+at two precisions. The grid covers 18 models, 25 languages and four bit-widths of Half-Quadratic
+Quantization (HQQ) [Badri and Shaji, 2023], a calibration-free post-training method that applies
+uniformly across languages. When we ask what predicts the penalty, model capacity within a fixed
+architecture emerges as the dominant factor, with compressed checkpoints more fragile than their
+size suggests.
+
+50
+
+Two recent studies quantize small ASR models. Edge-ASR [Feng et al., 2025] benchmarks eight
+PTQ methods on Whisper and Moonshine checkpoints up to 244M parameters, and Söhler et al.
+[2026] compare quantization libraries on Whisper tiny, base and small. Both find that the larger of
+these small models withstand low bit-widths better, and both evaluate only English. We extend this
+line in two directions: to billion-scale models, and across 25 languages whose resourcing spans three
+orders of magnitude. Our contributions are threefold. We separate the absolute from the relative
+quantization penalty and show the apparent resourcing effect belongs to the former. We show that
+model capacity, not resourcing, is what decides how much a model loses. And we show a compressed
+checkpoint breaking the size trend, losing far more than plain models of its size.
+
+51
+
+2
+
+Experimental Setup
+
+Models. 18 ASR and audio-language models spanning four families and three orders of magnitude:
+8 Whisper checkpoints [Radford et al., 2023] (including the compressed turbo variant Wh-Lv3t),
+6 LiteASR compressions of Whisper-large-v3 [Kamahori et al., 2025], 2 Qwen audio-LLMs [Chu
+et al., 2024, Xu et al., 2025] and 2 Voxtral models [Liu et al., 2025], from 37.8M to 24B parameters.
+Datasets. 25 European languages of short-form speech (utterances under 30s) from Common
+Voice 15 [Ardila et al., 2020], MLS [Pratap et al., 2020] and FLEURS [Conneau et al., 2022], giving
+47 evaluation sets (Appendix A). Each language is grouped by its combined Whisper pretraining
+hours into four resource tiers: low (<316 h), medium (316–3,162 h), high (3,162–31,623 h) and
+extra (≥31,623 h, English only). Table 1 lists each tier’s hour range and its number of evaluation
+sets. We report character error rate (CER), which tracks human judgement more closely than WER
+for multilingual ASR [K et al., 2025]; scoring with WER changes no conclusion (Appendix D).
+Quantization. We use HQQ [Badri and Shaji, 2023] at 8-, 6-, 4- and 3-bit weight-only quantization
+with group size 64. All unquantized components use BFloat16, which serves as our BFloat16 baseline.
+Quantization covers every linear layer except the output head; the convolutional layers, LayerNorm,
+and embeddings remain in BFloat16. Every bit-width covers the same roster, and every run uses
+offline batch decoding with BFloat16 activations and greedy decoding. The decoder’s language token
+is forced per evaluation set to prevent language identification from affecting the measured deltas.
+Since HQQ requires no calibration data, the quantization procedure is applied uniformly across
+languages. A run whose CER reaches 200 is treated as failed rather than degraded and is excluded;
+results are reported as medians (Appendix B).
+
+76
+
+Statistical analysis. We use the Kruskal–Wallis test [Kruskal and Wallis, 1952] to compare relative
+CER penalties across multiple resource tiers or models, and the Mann–Whitney test [Mann and
+Whitney, 1947] for direct comparisons between two groups. Both are nonparametric tests based on
+the ranks of the observations, avoiding assumptions about normally distributed penalties. We use
+p < 0.05 as the threshold for statistical significance.
+
+77
+
+3
+
+Results
+
+78
+
+3.1
+
+Resourcing increases the absolute penalty but barely the relative one
+
+79
+
+Table 1 reports the paired relative CER increase from BFloat16 to each HQQ bit-width, by tier, across
+the 16 models. Qwen models are excluded from this analysis (Appendix B). Runs are paired by
+(model, dataset): every delta compares a model against itself on the same test set.
+
+The absolute and relative penalties tell different stories. At 4 bits, the absolute CER increase
+grows as resourcing falls: 0.151, 0.336, 0.773 for high, medium and low respectively. This reflects
+the higher baseline CER in low-resource languages, where the same relative increase translates
+into a larger absolute increase. Dividing by each language’s own BFloat16 baseline removes this
+effect, with the relative penalty varying by only 1.12× between the high and low tiers. English
+(extra) follows the same pattern, with an absolute penalty between those of the high and medium tiers
+2
+
+Table 1: Median relative ∆CER (%) after HQQ quantization, relative to the BFloat16 baseline, by
+bit-width and resource tier. Each tier’s header gives its pretraining-hour range and its number of
+evaluation sets N . The bottom row reports the absolute CER increase at 4 bits, and K–W p is the
+Kruskal–Wallis test p-value for differences across resource tiers.
+Extra
+(≥31,623 h, N =3)
+
+High
+(3,162–31,623 h, N =25)
+
+Medium
+(316–3,162 h, N =11)
+
+Low
+(<316 h, N =8)
+
+K–W p
+
+8
+6
+4
+3
+
+0.1
+0.3
+5.2
+23.2
+
+-0.1
+0.1
+5.7
+29.9
+
+0.0
+0.1
+5.9
+37.7
+
+0.1
+0.3
+6.4
+39.0
+
+0.22
+0.64
+0.45
+0.08
+
+abs.
+
+0.265
+
+0.151
+
+0.336
+
+0.773
+
+–
+
+Bits
+
+Params
+(M)
+
+rel.
+∆CER
+
+abs.
+∆CER
+
+Wh-T
+Wh-B
+Wh-S
+Wh-M
+Wh-L
+Wh-Lv2
+Wh-Lv3
+
+37.8
+72.6
+241.7
+763.9
+1543.3
+1543.3
+1543.5
+
+129.3
+15.5
+8.2
+4.4
+1.1
+2.5
+2.8
+
+26.72
+2.04
+0.59
+0.18
+0.03
+0.06
+0.07
+
+Wh-Lv3t (comp.)
+
+808.9
+
+8.5
+
+0.26
+
+Table 2: Median paired CER increase from
+BFloat16 to 4-bit across the Whisper scaling ladder. Relative ∆CER is a percentage of each
+model’s BFloat16 baseline; absolute ∆CER is in
+CER points. Wh-Lv3t is shown separately as a
+compressed model.
+
+Figure 1: Median paired relative ∆CER across
+the Whisper scaling ladder, one line per HQQ
+bit-width (log-scale axes). Wh-T has no 3-bit
+point because all of its 3-bit runs exceed the CER
+threshold of 200 and are excluded (Appendix B).
+
+88
+
+Model
+
+(Appendix C). This also explains why the five-point degradation threshold used by Ferraz [2024] gives
+the impression of a strong resource effect. In their analysis, an utterance is considered degraded when
+quantization increases its error rate by more than five percentage points. Applied to our 4-bit runs,
+the threshold flags 16.8% of low-tier runs as degraded compared with 8.0% of high-tier runs. Using a
+relative threshold instead largely removes this difference, flagging 14.4% and 9.3% respectively.
+
+99
+
+Across the pooled runs, we find little evidence that resourcing explains the relative quantization
+penalty. The differences between resource tiers are not significant under Kruskal–Wallis p=0.45,
+and the direct high-versus-low comparison is similarly inconclusive (Mann–Whitney p=0.19). The
+differences between individual models are much larger, which we examine in the next section (Sec.
+3.2). The same overall pattern holds across bit-widths, although the 3-bit results show greater
+variation than the higher-bit settings. Restricting the analysis to runs with BFloat16 CER below 20
+gives the same result, with no significant difference across resource tiers (Kruskal–Wallis p=0.98).
+
+100
+
+3.2
+
+101
+
+Applying the same analysis across models shows a much larger difference than across resource tiers.
+At 4 bits, the relative CER penalty ranges from 129.3% for Wh-T to 2.8% for Wh-Lv3. The penalty
+falls consistently as model size increases, with the largest reductions occurring at the small end of the
+Whisper scaling ladder. This pattern is much stronger than the small differences observed between
+resource tiers.
+
+Model capacity strongly affects quantization fragility
+
+Model capacity, measured by parameter count, is the main source of variation in quantization fragility,
+but its effect depends on the architecture. Across all 16 models, parameter count has only a weak
+correlation with relative penalty (Spearman ρ=−0.28). For example, Voxtral-Mini (4,676M) has a
+larger relative penalty of 18.9% from BFloat16 to 4-bit quant than the smaller LiteASR-la (1,338M),
+3
+
+whose penalty is only 2.4%. Thus, parameter count alone is not a reliable predictor across
+different architectures.
+However, within a single architecture the relationship is much clearer. Restricted to the Whisper
+models, which form a consistent scaling ladder, relative penalty decreases strongly with parameter
+count (Spearman ρ=−0.88), as shown in Figure 1 and Table 2. The penalty falls monotonically
+from Wh-T through Wh-L, then flattens across the three 1.5B checkpoints, showing that the benefit
+of additional capacity is largest at the smaller end of the ladder and becomes smaller at the
+top. Voxtral’s two checkpoints show the same trend (18.9% at 4.7B against 10.8% at 24.3B), while
+LiteASR shows why architecture must be held fixed, its variants differ by compression strategy rather
+than size, and size barely predicts fragility within it (ρ=−0.18).
+The compressed Wh-Lv3t is an important exception. With 809M parameters, it is similar in size to
+Wh-M and Wh-L, but its 8.5% relative penalty is 1.9–7.6× larger than that of the plain models of
+comparable size. This shows that model size alone does not determine quantization fragility, as the
+way a model was trained or compressed can also matter.
+The capacity effect becomes stronger as precision falls. The correlation across the Whisper ladder
+changes from ρ=−0.15 at 8-bit to -0.31 at 6-bit, -0.70 at 4-bit, and -0.76 at 3-bit. At 8-bit, quantization
+adds little to no error, whereas at 3-bit the penalty is strongly associated with model capacity. In
+other words, lower bit-widths make capacity increasingly important for quantization robustness,
+while resourcing has only a small effect (Sec. 3.1).
+
+135
+
+There are a few caveats to this trend. LiteASR-tf has a very high BFloat16 baseline, making its
+0.1% relative penalty look large despite a small absolute increase. The smallest Whisper models also
+quantize a smaller fraction of their parameters because the tied embedding and output head remain in
+BFloat16, yet they still have the largest penalties. This means the capacity trend is not simply a
+result of quantizing more parameters in smaller models. Finally, more 3-bit runs are removed
+by the degenerate-run filter than at BFloat16, so the 3-bit results should be interpreted with some
+caution (Appendix B).
+
+136
+
+4
+
+Conclusion
+
+Pretraining hours predict BFloat16 CER well, but have only a limited effect on the relative quantization
+penalty. At 4 bits, the low-resource tier has a relative penalty of 6.4% compared with 5.7% for the
+high tier, while differences between models are much larger. Within the Whisper scaling ladder, the
+4-bit penalty falls from 129.3% for Wh-T to 2.8% for Wh-Lv3, with a strong correlation between
+model size and penalty (ρ=−0.88). This relationship becomes stronger as precision is reduced,
+showing that model capacity becomes increasingly important for quantization robustness at lower
+bit-widths. Overall, our results suggest that quantization does not inherently widen the low-resource
+gap; the apparent resource effect is largely explained by differences in BFloat16 baseline error, while
+model capacity has a much larger influence on quantization fragility.
+For deployment, these results favor the largest plain checkpoint that fits within a fixed architecture,
+particularly when using lower bit-widths. The compressed Wh-Lv3t is an important exception,
+showing substantially higher fragility than plain models of similar size and indicating that model
+history also matters beyond parameter count.
+
+157
+
+Our study uses only one PTQ method, HQQ, and focuses on European short-form speech. The
+3-bit results are also affected by the removal of degenerate runs. The capacity trend is based mainly
+on the Whisper scaling ladder, with only two Voxtral models and one compressed checkpoint as
+additional evidence; the LiteASR family varies in compression strategy rather than size, showing that
+differences in training and compression can also affect quantization fragility beyond parameter count.
+Further evaluation across quantization methods, architectures, languages, and training strategies is
+therefore needed to determine how broadly these findings generalize. Appendix F discusses these
+limitations in more detail.
+
+158
+
+References
+
+159
+160
+
+Rosana Ardila, Megan Branson, Kelly Davis, Michael Henretty, Michael Kohler, Josh Meyer, Reuben
+Morais, Lindsay Saunders, Francis M. Tyers, and Gregor Weber. Common voice: A massively4
+
+multilingual speech corpus. In Proceedings of the 12th Language Resources and Evaluation
+Conference (LREC), pages 4218–4222, 2020. URL https://arxiv.org/abs/1912.06670.
+Hicham Badri and Appu Shaji. Half-Quadratic Quantization of Large Machine Learning Models,
+November 2023. URL https://dropbox.github.io/hqq_blog/.
+bitsandbytes foundation. bitsandbytes-foundation/bitsandbytes, 2022. URL https://github.com/
+bitsandbytes-foundation/bitsandbytes.
+Yunfei Chu, Jin Xu, Qian Yang, Haojie Wei, Xipin Wei, Zhifang Guo, Yichong Leng, Yuanjun Lv,
+Jinzheng He, Junyang Lin, Chang Zhou, and Jingren Zhou. Qwen2-audio technical report. arXiv
+preprint arXiv:2407.10759, 2024. URL https://arxiv.org/abs/2407.10759.
+Alexis Conneau, Min Ma, Simran Khanuja, Yu Zhang, Vera Axelrod, Siddharth Dalmia, Jason Riesa,
+Clara Rivera, and Ankur Bapna. Fleurs: Few-shot learning evaluation of universal representations of
+speech. arXiv preprint arXiv:2205.12446, 2022. URL https://arxiv.org/abs/2205.12446.
+Tim Dettmers, Mike Lewis, Younes Belkada, and Luke Zettlemoyer. Llm.int8(): 8-bit matrix
+multiplication for transformers at scale. In Advances in Neural Information Processing Systems
+(NeurIPS), 2022. URL https://arxiv.org/abs/2208.07339.
+Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer. Qlora: Efficient finetuning
+of quantized llms. In Advances in Neural Information Processing Systems (NeurIPS), 2023. URL
+https://arxiv.org/abs/2305.14314.
+Chen Feng, Yicheng Lin, Shaojie Zhuo, Chenzheng Su, Ramchalam Kinattinkara Ramakrishnan, Zhaocong Yuan, and Xiaopeng Zhang. Edge-ASR: Towards low-bit quantization of
+automatic speech recognition models, 2025. URL https://arxiv.org/abs/2507.07877.
+arXiv:2507.07877.
+Thomas Palmeira Ferraz. Efficient compression of multitask multilingual speech models. Master’s
+thesis, Institut Polytechnique de Paris, 2024. URL https://arxiv.org/abs/2405.00966.
+arXiv:2405.00966.
+Elias Frantar, Saleh Ashkboos, Torsten Hoefler, and Dan Alistarh. Gptq: Accurate post-training
+quantization for generative pre-trained transformers. In International Conference on Learning
+Representations (ICLR), 2023. URL https://arxiv.org/abs/2210.17323.
+Hugging Face. huggingface/optimum-quanto, 2024. URL https://github.com/huggingface/
+optimum-quanto.
+Thennal D K, Jesin James, Deepa Padmini Gopinath, and Muhammed Ashraf K. Advocating
+character error rate for multilingual ASR evaluation. In Luis Chiruzzo, Alan Ritter, and Lu Wang,
+editors, Findings of the Association for Computational Linguistics: NAACL 2025, pages 4941–
+4950, Albuquerque, New Mexico, April 2025. Association for Computational Linguistics. ISBN
+979-8-89176-195-7. doi: 10.18653/v1/2025.findings-naacl.277. URL https://aclanthology.
+org/2025.findings-naacl.277/.
+Keisuke Kamahori, Jungo Kasai, Noriyuki Kojima, and Baris Kasikci. Liteasr: Efficient automatic
+speech recognition with low-rank approximation. arXiv preprint arXiv:2502.20583, 2025. URL
+https://arxiv.org/abs/2502.20583.
+William H Kruskal and W Allen Wallis. Use of Ranks in One-Criterion Variance Analysis. Journal
+of the American Statistical Association, 47(260):583–621, 1952.
+Alexander H. Liu, Andy Ehrenberg, Andy Lo, Clément Denoix, Corentin Barreau, Guillaume
+Lample, Jean-Malo Delignon, Khyathi Raghavi Chandu, Patrick von Platen, Pavankumar Reddy
+Muddireddy, Sanchit Gandhi, Soham Ghosh, Srijan Mishra, Thomas Foubert, et al. Voxtral. arXiv
+preprint arXiv:2507.13264, 2025. URL https://arxiv.org/abs/2507.13264.
+H. B. Mann and D. R. Whitney. On a Test of Whether one of Two Random Variables is Stochastically
+Larger than the Other. The Annals of Mathematical Statistics, 18(1):50–60, March 1947. ISSN
+0003-4851. doi: 10.1214/aoms/1177730491. URL http://projecteuclid.org/euclid.
+aoms/1177730491.
+5
+
+Kelly Marchisio, Saurabh Dash, Hongyu Chen, Dennis Aumiller, Ahmet Üstün, Sara Hooker,
+and Sebastian Ruder. How does quantization affect multilingual LLMs? In Findings of the
+Association for Computational Linguistics: EMNLP 2024, pages 15928–15947. Association for
+Computational Linguistics, 2024. doi: 10.18653/v1/2024.findings-emnlp.935. URL https:
+//aclanthology.org/2024.findings-emnlp.935/.
+Benjamin Marie and Atsushi Fujita. The uneven impact of post-training quantization in machine
+translation, 2025. URL https://arxiv.org/abs/2508.20893. arXiv:2508.20893.
+Vineel Pratap, Qiantong Xu, Anuroop Sriram, Gabriel Synnaeve, and Ronan Collobert. Mls: A
+large-scale multilingual dataset for speech research. In Proc. Interspeech, pages 2757–2761, 2020.
+doi: 10.21437/Interspeech.2020-2826. URL https://arxiv.org/abs/2012.03411.
+Alec Radford, Jong Wook Kim, Tao Xu, Greg Brockman, Christine McLeavey, and Ilya Sutskever.
+Robust speech recognition via large-scale weak supervision. In Proceedings of the 40th International Conference on Machine Learning, volume 202 of Proceedings of Machine Learning
+Research, pages 28492–28518. PMLR, 2023. URL https://proceedings.mlr.press/v202/
+radford23a.html.
+Arthur Söhler, Julian Irigoyen, and Andreas Søeborg Kirkedal. Quantizing Whisper-small: How
+design choices affect ASR performance. In Proceedings of the SPEAKABLE Workshop at LREC,
+2026. URL https://arxiv.org/abs/2511.08093. arXiv:2511.08093.
+
+230
+
+Jin Xu, Zhifang Guo, Jinzheng He, Hangrui Hu, Ting He, Shuai Bai, Keqin Chen, Jialin Wang, Yang
+Fan, Kai Dang, Bin Zhang, Xiong Wang, Yunfei Chu, and Junyang Lin. Qwen2.5-omni technical
+report. arXiv preprint arXiv:2503.20215, 2025. URL https://arxiv.org/abs/2503.20215.
+
+231
+
+A
+
+228
+229
+
+232
+233
+234
+
+Datasets, languages and resource tiers
+
+Table 3 gives the corpus statistics. The 25 languages give 47 evaluation sets, and each model is
+evaluated on every set under five precision settings: BFloat16 and HQQ 8/6/4/3-bit, over 159,879
+short-form utterances per full model sweep.
+Table 3: Evaluation corpora. Utterances are counted per full model sweep and duration is the mean
+utterance length. Common Voice dominates the utterance count, FLEURS the language coverage.
+Corpus
+
+Languages
+
+Sets
+
+Utterances
+
+Duration (s)
+
+13
+25
+7
+
+15
+25
+7
+
+125,800
+20,146
+13,933
+
+5.2
+11.4
+15.1
+
+Common Voice 15 [Ardila et al., 2020]
+FLEURS [Conneau et al., 2022]
+MLS [Pratap et al., 2020]
+
+244
+
+Each language is mapped to its Whisper pretraining hours from the original Whisper report [Radford
+et al., 2023], combining the ASR (transcription) and X to English translation hours, since both shape
+the model’s exposure to the language. Languages are grouped by the order of magnitude of this
+combined figure, so a tier spans one power of ten and its boundaries fall halfway between powers of
+ten on the log scale: 316 h, 3,162 h and 31,623 h. The extra tier exists because English’s 438,218 h is
+≈25× the next-highest language (Spanish, 17,793 h) and would otherwise single-handedly distort the
+high tier. The tiers are then well balanced: 9 high (Spanish, German, Russian, French, Portuguese,
+Polish, Italian, Dutch, Swedish), 9 medium (Finnish, Greek, Ukrainian, Hungarian, Romanian,
+Danish, Czech, Slovenian, Croatian), 6 low (Bulgarian, Slovak, Lithuanian, Latvian, Estonian, and
+Maltese at 42.1 h), and English alone in extra.
+
+245
+
+B
+
+Outlier policies
+
+Qwen output-language failure. The Qwen audio models collapse on medium and low-resource
+languages regardless of precision (Table 5). Their hypotheses there drift into other languages
+(German or English text for Latvian audio) and repetition loops, in BFloat16 as much as quantized.
+Whatever its trigger, the failure is independent of precision, so the models are excluded from the
+quantization-by-tier analysis.
+6
+
+260
+
+Degenerate runs. A run whose CER reaches 200 has failed rather than degraded, so we drop it
+and report medians, which are robust to the remaining heavy tail. The filter removes 0.8% of runs
+at BFloat16 but 8.2% at 3-bit. Of those 69 collapses, 68 come from the two smallest Whisper
+checkpoints and the two most compressed LiteASR variants, and every 3-bit run of Wh-T collapses.
+This removal, if anything, understates the capacity effect. The filter also removes more low-tier
+than high-tier runs (2.3% against 0.3% at 4-bit; 12.5/11.7% of medium/low against 7.0% at 3-bit),
+which could make the tiers look more equal than they are. Two re-tests show it does not: keeping the
+collapsed 3-bit runs but capping their CER at 200 instead of deleting them still finds no significant
+tier difference (p=0.12), and removing LiteASR-tf, the one model with a degenerate baseline, leaves
+the pooled 4-bit test unchanged (p=0.48).
+
+261
+
+C
+
+The BFloat16 resourcing law
+
+Table 4 shows CER falling with log pretraining hours for all leading models over 25 languages.
+Against ASR-only hours, the Pearson correlation (rasr ) ranges from −0.60 to −0.73 and the Spearman
+rank correlation (ρasr ) from −0.62 to −0.81; against the combined ASR+translation hours that define
+the tiers, the Pearson correlation (rcomb ) is moderately weaker. The law is model-agnostic. Voxtral-S,
+Wh-Lv3, its turbo variant and LiteASR-la show comparable slopes.
+Table 4: BFloat16 CER against log pretraining hours over 25 languages. rasr and ρasr use ASR-only
+hours; rcomb uses the combined ASR+translation hours that define the tiers.
+rasr
+
+ρasr
+
+rcomb
+
+Median CERlang
+
+-0.62
+-0.60
+-0.73
+-0.66
+
+-0.67
+-0.62
+-0.81
+-0.68
+
+-0.50
+-0.47
+-0.63
+-0.54
+
+2.8
+3.3
+4.5
+3.3
+
+Model
+Wh-Lv3
+Wh-Lv3t
+Voxtral-S
+LiteASR-la
+
+Table 5 gives BFloat16 median CER by tier and model family. Every family degrades by a factor
+of three or more from the high tier to the low tier, and no single family leads everywhere. Voxtral
+is best on the high tier (2.1 against Whisper’s 3.1), while Whisper is best on medium and low (6.3
+and 10.2 against Voxtral’s 7.5 and 12.1). English is the main exception to this pattern. Although its
+438,218 h of pretraining data places it above the high tier in three of the four families, its CER does
+not continue the log-linear trend. The relationship therefore holds more clearly below the extra tier.
+The gap is a property of the BFloat16 models.
+Table 5: BFloat16 median CERrun by resource tier and model family, with the number of languages
+per tier in the header denoted as L.
+Family
+Voxtral
+LiteASR
+Whisper
+Qwen
+
+Extra (L=1)
+
+High (L=9)
+
+Medium (L=9)
+
+Low (L=6)
+
+3.7
+6.6
+5.3
+3.5
+
+2.1
+3.0
+3.1
+3.6
+
+7.5
+8.5
+6.3
+56.1
+
+12.1
+13.3
+10.2
+59.3
+
+276
+
+The tier sample sizes behind Table 1’s 4-bit row are 48 paired observations for extra (English alone,
+n=1 language) and 399/172/125 for high/medium/low; every bit-width rests on 45–399 paired
+observations.
+
+277
+
+D
+
+274
+275
+
+Metric and aggregation robustness
+
+K et al. [2025] argue that CER tracks human judgement more closely than WER for multilingual ASR, including for whitespace-delimited scripts, which all 25 languages here use. Scoring
+with WER instead changes no conclusion, the run-level agreement between the two is Spearman
+ρ=0.97 (n=4,112); the resource-tier ordering is identical (Kendall τ =1.0); the resourcing law holds
+(r=−0.76 to −0.71); and the flat penalty survives (Kruskal–Wallis p=0.47). Model ranks move by
+at most 4 places (τ =0.80).
+7
+
+291
+
+Dataset coverage is uneven as French has four evaluation sets while most low-resource languages
+have one, so an aggregate over all sets would weight French four times as heavily. We therefore report
+two aggregations and label every table with the one it uses. CERrun treats each model’s evaluation on
+one set as one observation and takes the median over that model’s 47 evaluations. CERlang first takes
+the median within each language’s sets and then the median over the 25 languages, so every language
+counts once. Wh-Lv3 scores CERlang =2.8 and CERrun =2.4. An utterance-weighted micro-average
+over all short-form utterances ranks models the same way as CERrun (Kendall τ =0.83 across all 18
+models).
+
+292
+
+E
+
+Per-family distributions
+
+Figure 2 shows the distributions behind Table 1, per model family. 8-bit is indistinguishable from
+BFloat16 and 6-bit adds only a marginal increase; degradation becomes noticeable at 4-bit and
+intensifies at 3-bit, where the smaller and already-compressed models spread widely while Wh-Lv3
+and Voxtral-S hold stable medians.
+
+Figure 2: CER of 14 of the 18 models at BFloat16 and HQQ 8/6/4/3-bit, by family. Each family’s
+worst members are omitted (Wh-T, Wh-B, LiteASR-t, LiteASR-tf) and y-axes differ per panel; the
+green line marks a CER of ten throughout. Parameter counts appear under each model.
+
+F
+
+Extended limitations and ethical considerations
+
+Extending to other PTQ families, such as bnb with LLM.int8() and NF4/QLoRA [bitsandbytes
+foundation, 2022, Dettmers et al., 2022, 2023], GPTQ [Frantar et al., 2023], Quanto [Hugging Face,
+2024], and to non-European languages is future work. Per-tier sample sizes are uneven. We measure
+accuracy (CER) only; latency, memory and energy on device are not evaluated. Feng et al. [2025]
+and Söhler et al. [2026] also find int8 quantization near-lossless, matching our 8-bit and 6-bit rows;
+neither study includes models above 244M parameters, where we find the penalty stops shrinking.
+Resource bins follow Whisper’s approximate hour estimates.
+All datasets are publicly released benchmarks under research-use licenses; we introduce no new
+speech data or speaker-identifying information. The analysis is intended to support more equitable
+deployment of quantized multilingual ASR.
+8

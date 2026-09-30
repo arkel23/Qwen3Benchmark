@@ -1,0 +1,32 @@
+{
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "local-qwen",
+        "name": "camel llama.cpp",
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "envKey": "OPENAI_API_KEY"
+      }
+    ]
+  },
+  "env": {
+    "OPENAI_API_KEY": "unused"
+  },
+  "security": {
+    "auth": {
+      "selectedType": "openai"
+    }
+  },
+  "model": {
+    "name": "local-qwen"
+  },
+  "$version": 4,
+  "ui": {
+    "autoModeAcknowledged": true
+  },
+  "context": {
+    "includeDirectories": [
+      "/edahome/pcslab/pcs05/.qwen/guides"
+    ]
+  }
+}

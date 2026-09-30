@@ -1,0 +1,15 @@
+{
+ "max_sentence_words": 25,
+ "forbidden": [
+  ";",
+  "\u2014",
+  " -- "
+ ],
+ "required": [
+  "\\NLangs{}",
+  "\\citep{feng2025edgeasr}",
+  "\\citet{soehler2025quantizing}"
+ ],
+ "min_ratio": 0.6,
+ "max_ratio": 1.4
+}

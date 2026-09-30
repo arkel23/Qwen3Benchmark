@@ -1,0 +1,80 @@
+[
+  {
+    "id": "q1",
+    "question": "In the cultivar identification paper, how many parameters per 200-class task does the warmup method train?",
+    "answer": "0.51 M",
+    "aliases": [],
+    "position": 0.017
+  },
+  {
+    "id": "q2",
+    "question": "In the cultivar identification paper, what accuracy does a linear classifier on the frozen representation reach on SoyGlobal?",
+    "answer": "17.9%",
+    "aliases": [
+      "17.9"
+    ],
+    "position": 0.009
+  },
+  {
+    "id": "q3",
+    "question": "In the cultivar identification paper, how many images does the pooled warmup corpus contain?",
+    "answer": "24,367",
+    "aliases": [],
+    "position": 0.316
+  },
+  {
+    "id": "q4",
+    "question": "In the cultivar identification paper, over how many cultivar labels does the pooled corpus span?",
+    "answer": "3,526",
+    "aliases": [],
+    "position": 0.288
+  },
+  {
+    "id": "q5",
+    "question": "In Table I of the cultivar identification paper, how many classes does SoyGene have?",
+    "answer": "1110",
+    "aliases": [],
+    "position": 0.285
+  },
+  {
+    "id": "q6",
+    "question": "In Table III of the cultivar identification paper (448 × 448), what is the highest SoyGlobal accuracy of any method?",
+    "answer": "70.69",
+    "aliases": [],
+    "position": 0.381
+  },
+  {
+    "id": "q7",
+    "question": "In the cultivar identification paper, on which GPU is inference throughput measured?",
+    "answer": "NVIDIA RTX 3090",
+    "aliases": [
+      "RTX 3090"
+    ],
+    "position": 0.3
+  },
+  {
+    "id": "q8",
+    "question": "In the cultivar identification paper, what average accuracy does the previous best PETL method, FFVT, reach?",
+    "answer": "60.9%",
+    "aliases": [
+      "60.9"
+    ],
+    "position": 0.471
+  },
+  {
+    "id": "q9",
+    "question": "In the CLCA paper, how many pretrained backbones do the experiments cover?",
+    "answer": "9 backbones",
+    "aliases": [
+      "nine backbones"
+    ],
+    "position": 0.78
+  },
+  {
+    "id": "q10",
+    "question": "In the CLCA paper, what is DWG, the number of groups dedicated to each channel in the depth-wise convolution of the CLA head?",
+    "answer": "DWG = 2",
+    "aliases": [],
+    "position": 0.878
+  }
+]

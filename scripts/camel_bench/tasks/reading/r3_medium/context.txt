@@ -1,0 +1,3531 @@
+=== PAPER: Decomposing Quantization Errors in Mandarin Speech Recognition ===
+
+Received XX Month, XXXX; revised XX Month, XXXX; accepted XX Month, XXXX; Date of publication XX Month, XXXX; date of
+current version XX Month, XXXX.
+Digital Object Identifier 10.1109/XXXX.2022.1234567
+
+Decomposing Quantization Errors in
+Mandarin Speech Recognition
+Edwin Arkel Rios1,3 , Augusto Christian Surya2,3 , and Bo-Cheng Lai1
+1
+
+National Yang Ming Chiao Tung University, Hsinchu City 300093, Taiwan
+2
+National Tsing Hua University, Hsinchu, Taiwan
+3
+Tranxform AI
+
+This work was supported by Tranxform AI and NSTC under Grant 114-2221-E-A49-186. E. Rios and A. Surya conducted this work during an
+are co-first authors.)
+
+ABSTRACT Post-training quantization (PTQ) is a common route to deploying large automatic speech
+
+recognition (ASR) models, yet its effect on Mandarin ASR is usually reported as a single character error
+rate (CER), which hides how a model fails. We evaluated 19 models on 7 Mandarin dataset splits under
+3 PTQ methods from 2 to 8 bits, measuring quantization cost in CER and decomposing errors into
+linguistically meaningful components: tone and homophone confusions, and consonant and vowel errors
+in the base syllable. Quantization robustness depends on model capacity within an architecture family but
+does not transfer across families: at 3-bit, median ∆CER within Whisper ranges from +751.8 for Wh-T
+to +1.1 for Wh-L, while the 24B Voxtral-S degrades by +34.2 compared with only +1.1 for the 1.5B
+Wh-L, and the best BFloat16 model is not the most robust one. CER is strongly correlated with consonant
+and vowel errors (ρ = 0.92 for both), more than with tone and homophone errors (ρ = 0.55 and 0.11).
+Tone degradation nevertheless remains measurable: among syllables whose base pronunciation is correctly
+recovered, tone errors increase consistently with quantization.
+INDEX TERMS Automatic speech recognition, error analysis, post-training quantization.
+
+I. Introduction
+
+Automatic speech recognition (ASR) is a core technology
+behind voice assistants, automatic transcription and speech
+translation. Large multilingual models such as Whisper,
+Qwen2-Audio, Qwen2.5-Omni and Voxtral [1]–[4] have
+raised recognition accuracy across languages and domains,
+and their quality is reported as a single error rate per
+model. These models range from hundreds of millions to
+tens of billions of parameters, and their memory and compute
+requirements rule out edge devices and mobile hardware.
+Post-training quantization (PTQ) is the usual solution. It
+alleviates memory and inference cost without retraining, so
+quantized models are available on more hardware. Its cost
+for ASR has been measured mostly on English. Recent
+PTQ studies benchmark Whisper and Moonshine on English
+test sets [5], [6], and the one multilingual study finds that
+quantization amplifies the penalty on smaller models and
+under-represented languages [7]. All of them report that same
+
+single error rate per model, which says how much a model
+fails but not how.
+Mandarin Chinese is the second largest language by number of speakers after English, with an estimated 1.2 billion
+speakers in 2026 [8]. It is also a major language for digital
+communication and voice-based applications, which makes
+efficient Mandarin speech recognition relevant to a large and
+geographically distributed user base. Mandarin gives a model
+more ways to be wrong than English does. A character can be
+wrong in its base syllable, through an initial or final error.
+It can be wrong in its tone alone, with the base syllable
+right. It can be wrong in the character alone, a homophone
+with syllable and tone right. The character error rate (CER)
+counts all three alike, so a single number cannot separate
+them (Figure 1).
+Work on Mandarin ASR error correction shows that pronunciation and homophone confusions dominate the errors of
+full-precision models [9]–[11]. Compression is known to hit
+rare, fine-grained distinctions first, in vision [12] and across
+
+This work is licensed under a Creative Commons Attribution 4.0 License. For more information, see https://creativecommons.org/licenses/by/4.0/
+VOLUME ,
+
+1
+
+Rios et al.:
+
+English
+
+cat
+
+Mandarin
+
+kan4
+
+base sound
+base syllable
+tone
+
+shu4
+zai4
+
+homophone
+
+cap
+
+reference → hypothesis
+
+han4
+shu1
+zai4
+
+FIGURE 1. Ways a recognizer can be wrong. An English error changes
+the base sound of a word. A Mandarin character can be wrong in its base
+syllable (consonant or vowel), in tone alone, or in character alone
+(homophone). CER counts all of these errors. Examples from Table 3.
+
+the languages of quantized large language models [13].
+Tone and homophone errors are therefore the natural first
+casualties of quantization in Mandarin, and a single error rate
+cannot show whether the three failure modes degrade alike.
+This leads to a natural question: how does quantization
+affect Mandarin speech recognition, and which part of
+the syllable does it damage?
+We evaluate quantized ASR and large audio-language
+models (LALMs) on Mandarin short-form and long-form
+speech, and decompose every error through pinyin. We
+go one level deeper than prior pinyin-level analyses by
+splitting the base syllable into its consonant and vowel. Our
+contributions are:
+• A study of quantized Mandarin ASR comprising 2,014
+evaluation runs: 19 models, 7 quantization configuration, 7 Mandarin short-form splits and a 7-split longform corpus.
+• The finding that quantization robustness follows model
+capacity within an architecture family but not across
+families, and not full-precision accuracy either. At 3bit the median ∆CER within Whisper runs from +751.8
+for Wh-T to +1.1 for Wh-L, while the 24B Voxtral-S
+degrades by +34.2 against +1.1 for the 1.5B Wh-L.
+• A pinyin-level error analysis that decomposes recognition errors into consonant, vowel, tone and homophone components and locates quantization damage
+in the base syllable. The Spearman rank correlation ρ
+between CER and the consonant and vowel error rates
+is 0.92 for both, against 0.55 for the conditional tone
+error rate and 0.11 for homophones.
+II. Related Work
+A. Modern ASR Models
+
+The models we evaluate span three classes. Whisper [1]
+is an encoder-decoder trained on large-scale weakly supervised speech-text pairs, which made robust multilingual and
+zero-shot recognition standard. Large audio-language models
+(LALMs) such as Qwen2-Audio [2], Qwen2.5-Omni [3] and
+Voxtral [4] feed an audio encoder into a large language
+model and extend speech processing beyond transcription;
+their decoders are the same networks whose quantization
+the LLM literature studies. Efficiency-oriented variants such
+as LiteASR [14], which compresses Whisper’s encoder by
+low-rank approximation, push the accuracy-cost frontier and
+2
+
+are the natural companions of quantization on constrained
+hardware. Section III-A lists the 19 checkpoints.
+B. Mandarin ASR and Its Error Structure
+
+Mandarin error analysis works through pinyin. The ASREC benchmark [9] is, to our knowledge, the first dedicated
+benchmark for evaluating LLMs on Chinese ASR error
+correction, built from the THCHS-30 [15], AISHELL-1 [16],
+AISHELL-2 [17] and WenetSpeech [18] transcripts. Pinyinbased representations and regularization model pronunciation and homophone errors better, both for prompting and
+fine-tuning correction LLMs [10] and for N-best rescoring
+[11], and pinyin has been fed directly into an LLM-based
+recognizer [19]. These works agree that Chinese homophones make substitution the dominant Mandarin error, and
+they analyze the syllable through its initial and final, the
+standard decomposition of Mandarin phonology [20].
+They also share a limit. All of them target error correction
+or model design and analyze full-precision models; none
+asks how the error structure changes when the model’s
+precision is cut. To our knowledge no prior work benchmarks
+the interaction between PTQ and pinyin-level, let alone
+consonant- and vowel-level, Mandarin error structure. That
+is the question here.
+C. Quantization of Speech Models
+
+Quantization reduces the memory footprint and compute
+cost of a network by storing its weights in fewer bits;
+Gholami et al. [21] survey the field. We use three PTQ
+toolkits: bitsandbytes [22], which implements LLM.int8()
+[23] and NF4 [24], Quanto [25], and HQQ [26]. HQQ is
+a calibration-free method in the optimization-based line that
+GPTQ opened [27], the line that pushes usable bit-widths
+below 4. The toolkits and bit-widths evaluated are described
+in Section III-C.
+For speech, PTQ has been benchmarked on Whisper and
+Moonshine in English [5], [6] and combined with token
+pruning for ASR hardware [28]; quantization-aware training
+has been applied to audio source separation [29]. The one
+multilingual study shows that quantizing Whisper amplifies
+its penalty on smaller variants and under-represented languages [7]. All of these report an aggregate error rate.
+Findings from LLM quantization set the expectations our
+results test. Four-bit weight-only PTQ is close to the bit-level
+optimum [30] and keeps performance comparable to full
+precision [31], and robustness depends on training compute
+and dynamics rather than on size alone [32], [33]. Across 1to 4-bit training, ParetoQ reports a sharp transition between
+3 and 2 bits, below which the weight representations change
+drastically [34]. We will meet the same transition in speech.
+The damage is also uneven, which is where the tone
+and homophone hypothesis comes from. Compression disproportionately affects long-tail, low-frequency classes in
+vision [12] and disparately harms non-Latin-script and lowerresource languages under LLM quantization [13]. In machine
+VOLUME ,
+
+translation 2-bit PTQ hurts low-resource languages most
+[35], and 4-bit losses grow on long inputs and non-English
+text [36]; one k-quantization study reports no such gap
+[37].Tone and homophone disambiguation are a fine-grained,
+lower-frequency signal within Mandarin, which makes them
+a reasonable candidate for disproportionate degradation.
+None of these studies decomposes the error below the word
+or character, and none covers a tonal language. This paper
+does both, across 19 models and five bit-widths.
+TABLE 1. The 19 models, grouped into four families and ordered by
+parameter count within each, with their Hugging Face ids, the organization
+
+TABLE 2. The 7 Mandarin short-form dataset splits used in the main
+analysis.
+
+Dataset
+
+Split
+
+Avg. len (s)
+
+Utt.
+
+Hours
+
+CommonVoice19 [38]
+CommonVoice19
+AISHELL-1 [16]
+CommonVoice15 [38]
+WenetSpeech [18]
+WenetSpeech
+
+test
+validated
+test
+zh
+test_meeting
+test_net
+
+3.7
+3.2
+5.0
+5.9
+6.5
+3.4
+
+5,008
+49,354
+7,165
+10,624
+8,276
+24,553
+
+5.2
+44.1
+10.0
+17.4
+15.0
+22.9
+
+TaiwanTongues
+(Mandarin) [39]
+
+test
+
+3.3
+
+1,316
+
+1.2
+
+on the family row; naming conventions are given in Section III-A. Parameter
+counts are from BFloat16 totals.
+
+B. Datasets
+Model
+
+Hugging Face id (organization/name)
+
+Params (M)
+
+LiteASR models efficient-speech/
+LiteASR-tf
+lite-whisper-large-v3-turbo-fast
+
+487.0
+
+LiteASR-t
+LiteASR-ta
+LiteASR-lf
+LiteASR-l
+LiteASR-la
+
+547.5
+594.4
+1216.2
+1285.4
+1337.9
+
+lite-whisper-large-v3-turbo
+lite-whisper-large-v3-turbo-acc
+lite-whisper-large-v3-fast
+lite-whisper-large-v3
+lite-whisper-large-v3-acc
+
+Whisper models openai/
+Wh-T
+Wh-B
+Wh-S
+Wh-M
+Wh-Lv3t
+Wh-L
+Wh-Lv2
+Wh-Lv3
+
+whisper-tiny
+whisper-base
+whisper-small
+whisper-medium
+whisper-large-v3-turbo
+whisper-large
+whisper-large-v2
+whisper-large-v3
+
+Qwen models Qwen/
+Qwen2
+Qwen2-Audio-7B
+Qwen2-Ins
+Qwen2-Audio-7B-Instruct
+Qwen2.5-Omni
+Qwen2.5-Omni-7B
+
+37.8
+72.6
+241.7
+763.9
+808.9
+1543.3
+1543.3
+1543.5
+
+8397.1
+8397.1
+10732.2
+
+Voxtral models mistralai/
+Voxtral-Mi
+Voxtral-S
+
+Voxtral-Mini-3B-2507
+Voxtral-Small-24B-2507
+
+4676.3
+24261.8
+
+We evaluate on 7 Mandarin dataset splits from 5 corpora
+(Table 2): Common Voice releases 15 and 19 [38], counted
+as two corpora, AISHELL-1 [16], WenetSpeech [18] and
+Taiwan-Tongues [39]. The long-form corpus of Section IVF uses HSK-Speech [40] and CMMLU-Speech [41]. The
+English reference point of Section IV-A uses 23 English
+splits from LibriSpeech [42], TED-LIUM [43], GigaSpeech
+[44], VoxPopuli [45], Common Voice [38], the English
+ASR benchmark of [46], and further meeting, financial and
+spoken-question corpora.
+C. Quantization Methods
+
+We evaluate 6 post-training quantization (PTQ) configurations: bitsandbytes (BNB) [22] at 4-bit (NF4 [24]) and 8-bit
+(LLM.int8() [23]), Quanto [25] at 8-bit, and HQQ [26] at
+2-, 3-, and 4-bit precision. We denote these configurations
+as BNB4, BNB8, Quanto8, HQQ2, HQQ3, and HQQ4,
+respectively. HQQ quantizes each weight matrix group-wise;
+we use its default group size of 64, with the per-group
+scale and zero point kept in bfloat16 and not themselves
+quantized. Both the group size and the precision of those
+constants matter at 2 bits, so the HQQ2 results below are
+specific to this configuration. For the LiteASR models the
+integration quantizes the dense matrices only, leaving the
+low-rank factors of each compressed layer in bfloat16.
+D. Error Metrics
+
+III. Experimental Setup
+A. Models
+
+Our experiments use 19 models, shown in Table 1, in four
+families: Whisper, LiteASR, Qwen and Voxtral. Whisper
+names give the size (T/B/S/M/L) or version (Lv2, Lv3), with
+Lv3t the large-v3-turbo variant. LiteASR names carry a t-/lprefix for the teacher checkpoint (large-v3-turbo or large-v3)
+and an -f/-a suffix for the fast/accurate variant, so the six
+form two compression families rather than one size ladder.
+Qwen2 and Qwen2-Ins are Qwen2-Audio-7B and its Instruct
+variant; Voxtral-Mi and Voxtral-S are Voxtral-Mini-3B and
+Voxtral-Small-24B.
+VOLUME ,
+
+In addition to CER, we evaluate several Chinese-specific
+error metrics that decompose recognition errors into
+pronunciation-related components. For each utterance, the
+reference sequence is the ground-truth transcript, while the
+hypothesis sequence is the model output. The two sequences
+are aligned on their pinyin representations, with insertions
+and deletions always counted as errors.
+• Base-syllable error rate (BSER): word error rate on
+base-pinyin (tone-stripped) syllable sequences, measuring syllable recognition independent of tone.
+• Consonant error rate (CONER) and vowel error rate
+(VER): word error rates computed independently on the
+consonant (initial, C ) and vowel (final, V ) sequences
+3
+
+Rios et al.:
+
+TABLE 3. Worked example over the 6-character reference ta1 zai4 shu4
+xia4 kan4 shu1 (“he reads a book under the tree”). The Base column marks
+
+larger quantization-induced degradation in one metric is
+associated with larger degradation in another.
+
+the M = 4 pairs whose base syllable matches, the population TER - B is
+normalized over. Aggregating the six aligned pairs gives BSER = 2/6,
+
+A. Impact of Quantization on Chinese ASR
+
+CONER = 1/6, VER = 1/6, HER = 1/6, TER = 1/6 and TER-B = 1/4:
+one tone error, two denominators.
+
+Pos. Ref. Hyp. Pinyin (Ref./Hyp.) Base Error
+
+ta1
+zai4
+shu4
+xia4
+kan4
+shu1
+
+ta1
+zai4
+shu1
+xia4
+han4
+shi1
+
+match none
+match HER
+match TER, TER - B
+match none
+differ BSER/CONER
+differ BSER/VER
+
+of the reference and hypothesis pinyin. This separates
+base-syllable errors into consonant and vowel errors.
+The split is the standard initial/final decomposition of
+Mandarin phonology [20]; to our knowledge it has
+not been used before to localize quantization damage.
+Table 3 gives a worked example.
+• Tone (TER) and homophone (HER) errors. These
+errors are counted only for aligned character pairs
+whose base pinyin matches. Let ri and hi denote
+the i-th aligned reference and hypothesis characters,
+respectively, when neither is an insertion or deletion;
+N denote the number of reference characters; B(·)
+denote the base pinyin (tone-stripped syllable) of a
+character. Let M denote the number of aligned pairs
+with matching base pinyin, T the number of these pairs
+with a tone mismatch, and H the number with matching
+base pinyin and tone but different characters:
+M =
+
+∑︁
+
+i 1[Bi ]
+
+T =
+
+∑︁
+
+i 1[Bi ∧ T (ri ) ̸= T (hi )]
+
+H=
+
+∑︁
+
+i 1[Bi ∧ T (ri )=T (hi ) ∧ ri ̸= hi ]
+
+A base-pinyin mismatch is excluded from these counts
+and is instead captured by CER and BSER. Thus, a
+base matching pair can be classified as a tone error, a
+homophone error, or a correct character.
+
+8-bit quantization has little effect on CER. Figure 2 shows
+only marginal CER changes at 8 bits: the median ∆CER
+over the 19 models is 0.0 under Quanto8 and 0.1 under
+BNB8. The one model that degrades by more than one point
+is Qwen2-Ins under Quanto8 (+6.3).
+4-bit quantization costs more than 8-bit but stays manageable. The increase at HQQ4 is visible in Figure 2 yet
+small for most of the grid, and the damage is confined to
+the smaller models: Wh-T, LiteASR-t and Wh-B degrade by
++20.3, +13.2 and +7.5 ∆CER, and the two Voxtral models
+by +2.8 and +3.0. Of the remaining 14 models, 12 change
+by less than one point (−0.1 to +0.9) and two, Qwen2Ins and LiteASR-tf, improve by 6.2 and 2.5. Under BNB4
+the largest degradation is Qwen2-Ins at +181.6, followed by
+Wh-T at +33.7.
+3-bit quantization breaks the smaller models. At HQQ3
+the smallest Whisper encoders collapse: Wh-T by +751.8
+and Wh-B by +129.9 ∆CER (Table 7, Figure 3). The audiolanguage models also degrade sharply, Qwen2 by +106.6,
+Voxtral-Mi by +53.1 and Voxtral-S by +34.2, while Wh-L
+holds at +1.1 and Qwen2.5-Omni at +1.7.
+2-bit quantization fails for most models. At HQQ2 every
+model exceeds 20 CER and only 6 of 19 keep a median CER
+below 100 (Figure 3). No audio-language model stays below
+589 CER on any of the 7 dataset splits. Qwen2.5-Omni, the
+best model at BFloat16, collapses to 1575.4. The survivors
+are all encoder-decoder ASR models: 4 Whisper-family
+models (Wh-L, LiteASR-la, LiteASR-lf and LiteASR-l) stay
+below 100 on every split. The cliff between 3 and 2 bits is
+the transition ParetoQ reports for LLM weights, which stay
+near their pre-trained distribution down to 3 bits and change
+drastically below [34]; PTQ has no retraining with which to
+absorb that change.
+B. Effect of Model Capacity on Quantization Robustness
+
+IV. Results
+
+Larger models are more robust within the same architecture family. Focusing on Whisper, whose checkpoints form
+a clean capacity ladder, baseline CER falls with size along
+the tiny-to-large ladder, from 44.1 for Wh-T to 7.7 for Wh-L
+(Table 4). So does the HQQ3 penalty (Table 7): +751.8 for
+Wh-T and +129.9 for Wh-B, flattening from Wh-S upward
+at +3.9, +1.1 (Wh-L) and +1.5 (Wh-Lv3). The benefit of
+capacity is largest among the small models.
+
+We use 2 Spearman correlations to distinguish overall metric
+relationships from quantization-induced changes. We denote
+correlations between the metric levels themselves as ρ, which
+measures whether two metrics are correlated across runs. In
+contrast, ρ∆ denotes correlations between their changes from
+BFloat16 to lower bits (Table 6), which measures whether
+
+However, parameter count alone is not a reliable predictor across different architectures. The 24B Voxtral-S
+degrades by +34.2 CER at 3-bit, far more than the 1.5B WhL at +1.1, even though Wh-L has the lower baseline CER
+of the two (Table 4). Within one family size helps; between
+families it is not a usable signal.
+
+For tone errors, we report both TER = T /N , which
+measures tone errors regardless of whether the base syllable
+is correct, and TER - B = T /M , which measures tone errors
+only when the base syllable is correct. We use TER for
+severity comparisons and retain TER - B for comparison with
+prior error-analysis work.
+
+4
+
+VOLUME ,
+
+FIGURE 2. CER of 14 of the 19 models across four quantization levels (BFloat16, Quanto8, BNB8, HQQ4), grouped by family and ordered by ascending
+parameter count within each. Models and conditions omitted here for axis readability remain in every statistic, all of which are computed on the
+complete data. The 2-bit condition is shown in Figure 3.
+
+Training compute separates checkpoints of one architecture. Wh-Lv3t has 809M parameters, close to Wh-M, yet
+a BFloat16 CER of 11.8 against 10.8 and a ∆CER at HQQ3
+of +18.3 against +1.2. This matches the LLM finding that
+quantization robustness is set by training hyperparameters
+and token count rather than parameter count alone [32], [33].
+We see the same pattern among the three 1.5B Whisper
+checkpoints, which share one architecture and differ only
+in training (BFloat16 CER 7.7, 10.3 and 8.0), yet at HQQ2
+Wh-L reaches 33.2, Wh-Lv2 57.4 and Wh-Lv3 149.1. Largev2 was trained for 2.5 times more epochs than large with
+added regularization [47], and large-v3 on five million hours
+of audio [48]. Robustness falls in the order of training
+compute, as the precision scaling law predicts: post-training
+quantization degradation grows with the amount of training
+data [32].
+Model weights do not explain quantization robustness.
+We next asked whether the weights themselves say which
+checkpoint will survive. Quantizing every weight to 2 bits
+with one group-wise round-to-nearest scheme, we measured
+two properties per checkpoint: the relative reconstruction
+error, how far the quantized weights land from the originals,
+and the excess kurtosis of the weight distribution, how heavy
+its tails are and so how many outliers a fixed grid has to span.
+Among the 1.5B Whisper checkpoints both run against the
+outcome. Wh-L has the larger reconstruction error (23.0%
+against 22.0% for Wh-Lv2) and the heavier tails (kurtosis
+1.0 against 0.6), yet it is the more robust of the two at
+2 bits. Within LiteASR the statistics do separate the two
+teacher families: the large-v3-derived checkpoints, LiteASRl, LiteASR-la and LiteASR-lf, sit within 23.0% to 23.3% of
+each other, while the turbo-derived LiteASR-t, LiteASR-ta
+and LiteASR-tf carry heavier tails (kurtosis 3.4 to 4.0 against
+1.5 to 1.8). Weight statistics alone therefore do not decide
+VOLUME ,
+
+TABLE 4. BFloat16 Whisper baselines: per-model median over the 7
+Mandarin dataset splits, in %.
+
+Model
+
+CER
+
+Wh-T
+
+TER - B
+
+BSER
+
+CONER
+
+VER
+
+HER
+
+44.1
+
+6.1
+
+32.1
+
+24.5
+
+26.6
+
+7.3
+
+Wh-B
+28.9
+Wh-S
+16.2
+Wh-M
+10.8
+Wh-Lv3t 11.8
+Wh-L
+7.7
+Wh-Lv2 10.3
+
+4.0
+2.1
+1.3
+1.3
+1.1
+1.1
+
+18.8
+8.7
+6.6
+6.5
+4.0
+6.5
+
+15.3 15.2
+6.1
+6.6
+4.5
+5.3
+4.5
+5.1
+3.0
+3.0
+4.8
+5.2
+
+6.1
+4.4
+3.1
+3.0
+2.7
+2.5
+
+Wh-Lv3
+
+1.1
+
+4.0
+
+2.9
+
+2.8
+
+8.0
+
+2.9
+
+the outcome. What matters is how far a network’s output
+moves for the same weight error.
+
+FIGURE 3. CER under full-, 4-, 3- and 2-bit precision for the 6 of 19 models
+whose median CER at HQQ2 stays below 100.
+
+C. English Contrast
+
+The premise of this study is that Mandarin degrades differently from the English on which PTQ results are usually
+reported. We test that premise directly, running the same
+models and configurations on 23 English splits and comparing the 18 models the two corpora share (Table 5).
+5
+
+Rios et al.:
+
+TABLE 5. English against Mandarin for the 18 models both corpora share:
+
+TABLE 6. Paired-delta Spearman correlation of ∆CER with each tone and
+
+BFloat16 CER in each language, and the factor by which HQQ3 and HQQ2
+
+homophone metric, over the Mandarin corpus. One observation is one
+
+multiply it. Each entry is a median over that corpus’s dataset splits.
+
+(model, condition) pair: n = 114 across all six quantized conditions,
+
+BFloat16 CER
+
+HQQ3 ×
+
+HQQ2 ×
+
+Model
+
+En
+
+Zh
+
+En
+
+Zh
+
+En
+
+Zh
+
+LiteASR-tf
+LiteASR-t
+LiteASR-ta
+LiteASR-lf
+LiteASR-l
+LiteASR-la
+
+16.5
+2.6
+2.2
+2.4
+2.2
+2.3
+
+265.0
+41.1
+10.4
+20.3
+11.5
+8.9
+
+1.1
+1.6
+1.2
+1.0
+1.0
+1.0
+
+3.3
+4.4
+2.9
+1.0
+1.1
+1.1
+
+9.3
+86.6
+44.3
+1.7
+2.4
+2.5
+
+1.7
+62.3
+12.0
+1.8
+4.3
+4.0
+
+Wh-T
+Wh-B
+Wh-S
+Wh-M
+Wh-Lv3t
+Wh-L
+Wh-Lv2
+Wh-Lv3
+
+10.0
+6.6
+5.9
+4.5
+2.2
+5.0
+3.4
+2.5
+
+44.1
+28.9
+16.2
+10.8
+11.8
+7.7
+10.3
+8.0
+
+15.4
+3.4
+1.1
+0.6
+1.1
+1.0
+1.2
+1.0
+
+18.3
+5.4
+1.2
+1.0
+2.4
+1.2
+1.2
+1.2
+
+10.0
+42.7
+47.7
+5.1
+44.8
+1.8
+3.0
+28.6
+
+2.4
+58.4
+8.0
+8.9
+9.1
+4.3
+5.6
+18.5
+
+Qwen2
+Qwen2.5-Omni
+
+2.3
+2.1
+
+8.5
+4.7
+
+1.6
+1.0
+
+13.3
+1.4
+
+113.8
+148.4
+
+136.0
+335.7
+
+Voxtral-Mi
+Voxtral-S
+
+2.2
+2.1
+
+19.7
+16.4
+
+4.3
+41.6
+
+3.7
+3.0
+
+75.0
+103.1
+
+49.6
+87.5
+
+The same weight error costs more in Mandarin. At
+HQQ3, 17 of 18 models keep a median CER below 100
+in English against 13 in Mandarin, and 16 of 18 lose more
+in Mandarin: HQQ3 multiplies CER by a median ×1.14 in
+English and ×1.88 in Mandarin. At HQQ2 the multipliers
+compress for models whose Mandarin baseline is already
+poor, so we restrict the comparison to the 6 models that
+stay below 100 in both languages; every one of them is
+hit harder in Mandarin, by a median ×2.4 against ×4.3.
+The two languages still agree on which checkpoint to pick
+under quantization: across the 18 models the English and
+Mandarin HQQ2 medians rank together at ρ = 0.89, where
+their BFloat16 medians agree at only ρ = 0.39.
+Capacity orders the models the same way in both
+languages. The ladder of Section IV-B holds in English
+as in Mandarin: BFloat16 CER falls from Wh-T to the 1.5B
+checkpoints in both columns of Table 5, and the smallest
+encoders are the first to break in both. What changes is
+the size of the gap between the languages, which narrows
+monotonically along the tiny-to-large ladder, from ×4.4 for
+Wh-T to ×1.6 for Wh-L. Capacity therefore buys more in
+Mandarin than in English, which is consistent with Mandarin
+being the harder of the two targets for a fixed budget rather
+than a different problem.
+The pretraining mix sets the Mandarin baseline, not the
+robustness. The two Chinese-developed Qwen models have
+the strongest Mandarin baselines of the grid: Qwen2.5-Omni
+is the best of the 18 at 4.7 CER against 2.1 in English, the
+narrowest gap between the languages of any model except
+Wh-L (×2.3 against ×1.6). The LiteASR compressions run
+the other way: 5 of the six variants open a wider gap between
+the languages than the checkpoint they were compressed
+from, reaching ×16.0 for LiteASR-t and ×16.1 for LiteASRtf against ×5.3 for their teacher, so what the compression
+6
+
+n = 95 once HQQ2 is excluded.
+
+Scope
+All 6 conditions
+Excluding HQQ2
+
+∆TER - B
+
+∆TER
+
+∆HER
+
+0.59
+0.64
+
+0.24
+0.56
+
+0.22
+0.45
+
+TABLE 7. Median paired ∆ vs. BFloat16 at HQQ3, over the Mandarin
+corpus: Qwen2.5-Omni and five Whisper encoders spanning the capacity
+range (top) and the three other audio-language models (bottom).
+
+Model
+
+∆CER ∆CONER ∆VER ∆TER ∆HER
+
+Qwen2.5-Omni
+Wh-Lv3
+Wh-L
+Wh-S
+Wh-B
+Wh-T
+
+1.7
+1.5
+1.1
+3.9
+129.9
+751.8
+
+0.9
+0.9
+0.4
+3.4
+123.8
+612.9
+
+1.0
+0.9
+0.5
+2.5
+123.3
+640.2
+
+0.1
+0.2
+0.1
+0.5
+1.4
+-1.9
+
+0.2
+0.3
+0.1
+0.6
+-0.1
+-5.1
+
+Qwen2
+Voxtral-Mi
+Voxtral-S
+
+106.6
+53.1
+34.2
+
+16.7
+43.0
+29.4
+
+17.6
+43.0
+29.9
+
+-0.4
+-0.4
+0.3
+
+-1.4
+-0.1
+0.2
+
+discarded was recoverable in English and not in Mandarin.
+Robustness does not follow the same ordering. Qwen2 loses
+more in Mandarin relative to English at HQQ3 than any
+other model (×8.2), and at HQQ2 both Qwen models exceed
+100 CER in both languages. What a model was trained on
+shows in what it can transcribe, not in what it keeps when
+its weights are quantized.
+D. Base-Syllable Errors Dominate Quantization
+Degradation
+
+Base-syllable errors drive CER degradation. We decompose every error into consonant (CONER), vowel (VER), tone
+(TER) and homophone (HER) components to see which part
+of Mandarin recognition quantization affects most; Figures 4
+and 5 show the decomposition across conditions and across
+capacity. CER is rank-correlated with BSER at ρ = 0.98 and
+with both VER and CONER at ρ = 0.92; CONER and VER are
+almost perfectly correlated with each other (ρ = 0.998), so
+quantization does not prefer either component. Part of this
+agreement is structural: a consonant or vowel error is also a
+base-syllable error and therefore a character error, so one lost
+syllable moves all four metrics at once. Tone and homophone
+errors track CER far more loosely, at ρ = 0.09 for TER and
+ρ = 0.11 for HER, and the figures show the same picture:
+CER, CONER and VER rise together as quantization becomes
+more aggressive and capacity falls, while TER and HER stay
+comparatively flat. Degradation is a failure to recover the
+base syllable; why the tone metrics disagree with each other
+is explored further in Section IV-E.
+VOLUME ,
+
+FIGURE 4. Error metrics across quantization levels on AISHELL-1, for Wh-S (left, low capacity) and Wh-L (right, high capacity). For Wh-S the two tone
+rates part company at HQQ2: TER - B climbs to 13.7 while the N -normalized TER drops to 0.6, because that model has lost most of its base syllables.
+Wh-L never degrades far enough for the split to appear, and both of its tone rates rise together.
+
+FIGURE 5. Error metrics across 6 Whisper variants on AISHELL-1, BFloat16 (left) vs. HQQ3 (right); Wh-T/B are excluded as already off-scale at
+BFloat16. The row beneath each axis is the nominal parameter count.
+
+FIGURE 6. Row-normalized tone confusion (reference tone × predicted tone, in %), pooled over all 19 models; tone 5 is neutral. The diagonal decays
+from 92.2% to 57.9%, but the off-diagonal structure barely changes: the misread tones spread over all pairs in proportion to the tones’ frequencies
+rather than concentrating on any one pair, and the classic T2/T3 difficulty is not selectively amplified.
+
+E. Tone Errors and the Conditional Denominator
+
+Tone and homophone errors rise with quantization, but
+less than base-syllable errors. Across all six conditions the
+paired changes correlate with ∆CER at ρ = 0.24 for TER and
+0.22 for HER as reported in Table 6. Both rise sharply once
+HQQ2 is excluded, to 0.56 and 0.45, and that gap is itself
+informative. At 2 bits many models emit repeated or spurious
+VOLUME ,
+
+characters, so CER inflates through insertions against a fixed
+reference, while TER and HER are counted only on aligned
+pairs and cannot follow. Outside the collapse regime both
+track overall degradation, still less closely than the basesyllable metrics do.
+Tone errors increase more consistently when the base
+syllable is correct. Similar to HER, TER - B is a conditional
+7
+
+Rios et al.:
+
+metric, it divides tone mismatches by M , the base-matching
+pairs. Measured in that way the tone signal is stronger, CER
+correlating with TER - B at ρ = 0.55 against 0.09 for TER, and
+∆TER - B with ∆CER at 0.59, or 0.64 without HQQ2, reported
+in Table 6. Among syllables whose base survives, tone errors
+therefore increase steadily with quantization. But M itself
+shrinks as quantization destroys syllables, from 83.1% of
+reference syllables at BFloat16 to 25.0% at HQQ2. A tone
+error can only be counted on a base-matching pair, so the N normalized TER has ever fewer pairs left to count and falls
+from 1.8 to 1.2, even though unconditional tone accuracy
+drops from 92.2% to 59.0%. A conditional rate cannot be
+read as corpus-wide severity, and an unconditional one can
+fall while tone recognition collapses.
+Quantization causes a broad loss of tone information.
+Figure 6 gives the tone confusion matrix at four bit-widths.
+Its diagonal mean, the share of tones read correctly averaged
+over the five tones, holds at 92.2% at BFloat16 and 91.5%
+at HQQ4, where the tone error rate rises by 0.7 points,
+then reaches 86.6% at 3 bits and falls to 57.9% at 2 bits.
+Figure 6 also shows that tone 2 has the lowest correctrecognition rate of the five at every condition above 2 bits,
+and that tones 2 and 3 are the two lowest at 2 bits, consistent
+with previous reports that they are particularly difficult to
+distinguish [49]. Every tone loses between 29.2 and 36.8
+points from BFloat16 to HQQ2. The off-diagonal mass does
+not concentrate: the largest pair carries 11% of the misread
+tones at BFloat16 and 11% at HQQ2. Severe quantization
+erases tone information across all five tones rather than
+sharpening one confusion.
+F. Quantization Robustness on Long-Form Audio
+
+HSK-Speech [40] and CMMLU-Speech [41] (35.5–116.8
+s mean audio, beyond Whisper’s 30-second window) form
+the long-form corpus, run on the two families that handle
+long audio: Voxtral, which chunks internally, and Qwen2.5Omni, with blockwise 2-second attention. CMMLU-Speech
+contributes 3,147 utterances against 5–50 per HSK tier, so
+the HSK cells of Table 8 are medians over as few as five
+utterances and no claim rests on one tier.
+Long-form audio preserves the quantization robustness
+order. At BFloat16 Qwen2.5-Omni has a median CER at
+or below 0.8 on 6 of 7 splits and 18.1 on HSK6, while
+Voxtral-S is worse than the smaller Voxtral-Mi on 6 of the 7
+(Table 8). Under quantization Qwen2.5-Omni’s median stays
+between 0.5 and 0.6 under every condition down to HQQ3,
+HQQ4 included, and breaks only at HQQ2, at 223.8; both
+Voxtral variants degrade earlier and more gradually (Table 9,
+Figure 7). The hierarchy of the short-form corpus holds.
+Lower 2-bit degradation on long audio does not mean
+greater robustness. The short-form CER increase at HQQ2
+is much larger for every model, most of all for Qwen2.5Omni (+1574 against +224). This most plausibly reflects
+how CER behaves under repeat-loop collapse, not genuine
+robustness to longer audio: Whisper-family hallucination
+8
+
+TABLE 8. Long-audio corpus, BFloat16 median CER per model per dataset.
+
+Dataset
+
+Qwen2.5-Omni Voxtral-Mi Voxtral-S
+
+CMMLU
+HSK1
+HSK2
+HSK3
+HSK4
+
+0.2
+0.0
+0.8
+0.6
+0.5
+
+44.7
+6.9
+7.7
+8.8
+9.9
+
+34.7
+83.2
+82.2
+89.4
+90.9
+
+HSK5
+HSK6
+
+0.5
+18.1
+
+16.5
+56.1
+
+71.7
+67.2
+
+TABLE 9. Long-audio corpus, median CER per model per quantization
+condition, pooled across the 7 datasets.
+
+PTQ Config Qwen2.5-Omni Voxtral-Mi Voxtral-S
+BFloat16
+Quanto8
+
+0.5
+0.5
+
+9.9
+9.5
+
+82.2
+74.8
+
+BNB8
+BNB4
+HQQ4
+HQQ3
+HQQ2
+
+0.5
+0.6
+0.5
+0.5
+223.8
+
+9.1
+62.2
+45.3
+67.7
+161.0
+
+86.3
+84.5
+96.0
+97.8
+215.2
+
+under acoustic degradation is documented [50], including
+repetition loops and insertions [51], and quantized LLMs
+lose more on long inputs than on short ones [36].
+V. Conclusion
+
+Across 19 models, 6 PTQ configurations and 2,014 runs,
+8-bit quantization costs Mandarin ASR nothing, HQQ4 is
+usable for all but the smallest encoders, 3-bit is modeldependent, and 2-bit fails for every audio-language model
+and all but four Whisper-family checkpoints. Robustness
+follows capacity within an architecture family, not across
+families, and not full-precision accuracy: the best BFloat16
+model collapses at 2 bits, while the checkpoint that survives
+best is the least-trained Whisper large, in line with the
+precision scaling law. The damage sits in the base syllable:
+CER tracks consonant and vowel errors (ρ = 0.92), and the
+two degrade together. Tone degradation is real but hidden by
+its denominator: the conventional tone error rate falls under
+severe quantization because the syllables it is counted over
+disappear, while on the syllables a model still recovers tone
+errors climb steadily, across all five tones. Long-form audio
+changes none of this.
+Limitations. CONER is computed only over non-zero-initial
+syllables and is undefined for a few near-total-failure runs.
+Conditional tone metrics are unstable under severe collapse,
+so severity comparisons use the unconditional TER. Pinyinbased metrics assume Chinese-character output and diverge
+from CER when a quantized model emits substantial nonChinese text, the language-confusion failure documented for
+text LLMs [52]. The conclusions are specific to the 19
+models, PTQ methods and bit-widths evaluated, with at most
+VOLUME ,
+
+FIGURE 7. Long-audio CER by model and quantization condition; each
+box pools the 7 datasets (CMMLU-Speech and HSK1–6).
+
+seven splits per cell. Extending the consonant and vowel
+decomposition to Cantonese and other tonal languages, and
+explaining why Voxtral-S trails the smaller Voxtral-Mi on
+the long-form corpus, are the next steps.
+REFERENCES
+[1] A. Radford, J. W. Kim, T. Xu, G. Brockman, C. McLeavey, and
+I. Sutskever, “Robust speech recognition via large-scale weak supervision,” in Proceedings of the 40th International Conference on
+Machine Learning, ser. ICML’23, vol. 202. Honolulu, Hawaii, USA:
+JMLR.org, Jul. 2023, pp. 28 492–28 518.
+[2] Y. Chu, J. Xu, Q. Yang, H. Wei, X. Wei, Z. Guo, Y. Leng, Y. Lv,
+J. He, J. Lin, C. Zhou, and J. Zhou, “Qwen2-Audio technical
+report,” arXiv preprint arXiv:2407.10759, 2024. [Online]. Available:
+https://arxiv.org/abs/2407.10759
+[3] J. Xu, Z. Guo, J. He, H. Hu, T. He, S. Bai, K. Chen, J. Wang, Y. Fan,
+K. Dang, B. Zhang, X. Wang, Y. Chu, and J. Lin, “Qwen2.5-Omni
+technical report,” arXiv preprint arXiv:2503.20215, 2025. [Online].
+Available: https://arxiv.org/abs/2503.20215
+[4] A. H. Liu, A. Ehrenberg, A. Lo, C. Denoix, C. Barreau,
+G. Lample, J.-M. Delignon, K. R. Chandu, P. von Platen, P. R.
+Muddireddy, S. Gandhi, S. Ghosh, S. Mishra, T. Foubert et al.,
+“Voxtral,” arXiv preprint arXiv:2507.13264, 2025. [Online]. Available:
+https://arxiv.org/abs/2507.13264
+[5] C. Feng, Y. Lin, S. Zhuo, C. Su, R. K. Ramakrishnan, Z. Yuan, and
+X. Zhang, “Edge-ASR: Towards Low-Bit Quantization of Automatic
+Speech Recognition Models,” Aug. 2025, arXiv:2507.07877 [cs].
+[Online]. Available: http://arxiv.org/abs/2507.07877
+[6] A. Söhler, J. Irigoyen, and A. S. Kirkedal, “Quantizing Whispersmall: How design choices affect ASR performance,” Nov. 2025,
+arXiv:2511.08093 [eess]. [Online]. Available: http://arxiv.org/abs/
+2511.08093
+[7] T. P. Ferraz, “Efficient Compression of Multitask Multilingual Speech
+Models,” May 2024, arXiv:2405.00966 [cs.CL]. [Online]. Available:
+http://arxiv.org/abs/2405.00966
+[8] “What are the top 200 most spoken languages?” [Online]. Available:
+https://www.ethnologue.com/insights/ethnologue200/
+[9] V. J. Wei, W. Wang, D. Jiang, Y. Song, and L. Wang, “ASR-EC
+benchmark: Evaluating large language models on Chinese ASR
+error correction,” arXiv preprint arXiv:2412.03075, 2024. [Online].
+Available: https://arxiv.org/abs/2412.03075
+[10] Z. Tang, D. Wang, S. Huang, and S. Shang, “Pinyin regularization in
+error correction for Chinese speech recognition with large language
+models,” arXiv preprint arXiv:2407.01909, 2024. [Online]. Available:
+https://arxiv.org/abs/2407.01909
+[11] J. Liang and B. Zhang, “PERL: Pinyin enhanced rephrasing language
+model for Chinese ASR N-best error correction,” arXiv preprint
+arXiv:2412.03230, 2024. [Online]. Available: https://arxiv.org/abs/
+2412.03230
+[12] S. Hooker, A. Courville, G. Clark, Y. Dauphin, and A. Frome,
+“What do compressed deep neural networks forget?” arXiv preprint
+arXiv:1911.05248, 2019.
+[13] K. Marchisio, S. Dash, H. Chen, D. Aumiller, A. Üstün, S. Hooker,
+and S. Ruder, “How does quantization affect multilingual LLMs?” in
+
+VOLUME ,
+
+Findings of the Association for Computational Linguistics: EMNLP
+2024, 2024.
+[14] K. Kamahori, J. Kasai, N. Kojima, and B. Kasikci, “LiteASR: Efficient
+Automatic Speech Recognition with Low-Rank Approximation,” in
+Proceedings of the 2025 Conference on Empirical Methods in
+Natural Language Processing, C. Christodoulopoulos, T. Chakraborty,
+C. Rose, and V. Peng, Eds. Suzhou, China: Association for
+Computational Linguistics, Nov. 2025, pp. 3430–3442. [Online].
+Available: https://aclanthology.org/2025.emnlp-main.169/
+[15] D. Wang and X. Zhang, “THCHS-30: A free Chinese speech corpus,”
+arXiv preprint arXiv:1512.01882, 2015.
+[16] H. Bu, J. Du, X. Na, B. Wu, and H. Zheng, “AISHELL-1:
+An open-source Mandarin speech corpus and a speech recognition
+baseline,” in 2017 20th Conference of the Oriental Chapter of
+the International Coordinating Committee on Speech Databases and
+Speech I/O Systems and Assessment (O-COCOSDA). IEEE, 2017,
+pp. 1–5. [Online]. Available: https://arxiv.org/abs/1709.05522
+[17] J. Du, X. Na, X. Liu, and H. Bu, “AISHELL-2: Transforming Mandarin ASR research into industrial scale,” arXiv preprint
+arXiv:1808.10583, 2018.
+[18] B. Zhang, H. Lv, P. Guo, Q. Shao, C. Yang, L. Xie, X. Xu, H. Bu,
+X. Chen, C. Zeng, D. Wu, and Z. Peng, “WenetSpeech: A 10000+
+hours multi-domain Mandarin corpus for speech recognition,” in
+ICASSP 2022 – 2022 IEEE International Conference on Acoustics,
+Speech and Signal Processing (ICASSP). IEEE, 2022, pp. 6182–6186.
+[Online]. Available: https://arxiv.org/abs/2110.03370
+[19] J. Zhengjie and G. Cheng, “Pinyin-Guided Chinese Speech
+Recognition with Large Language Model,” 2025, pp. 564–568.
+[Online]. Available: https://www.isca-archive.org/interspeech_2025/
+zhengjie25_interspeech.html
+[20] S. Duanmu, The Phonology of Standard Chinese, 2nd ed. Oxford
+University Press, 2007.
+[21] A. Gholami, S. Kim, Z. Dong, Z. Yao, M. W. Mahoney, and
+K. Keutzer, “A survey of quantization methods for efficient neural
+network inference,” arXiv preprint arXiv:2103.13630, 2021. [Online].
+Available: https://arxiv.org/abs/2103.13630
+[22] T. Dettmers and bitsandbytes contributors, “bitsandbytes: 8-bit
+and 4-bit quantization functions for pytorch,” Software library,
+2022. [Online]. Available: https://github.com/bitsandbytes-foundation/
+bitsandbytes
+[23] T. Dettmers, M. Lewis, Y. Belkada, and L. Zettlemoyer, “LLM.int8():
+8-bit matrix multiplication for transformers at scale,” in Advances in
+Neural Information Processing Systems (NeurIPS), 2022. [Online].
+Available: https://arxiv.org/abs/2208.07339
+[24] T. Dettmers, A. Pagnoni, A. Holtzman, and L. Zettlemoyer, “QLoRA:
+Efficient finetuning of quantized LLMs,” in Advances in Neural
+Information Processing Systems (NeurIPS), 2023. [Online]. Available:
+https://arxiv.org/abs/2305.14314
+[25] Hugging Face, “Optimum quanto: A pytorch quantization backend
+for optimum,” Software library, 2024. [Online]. Available: https:
+//github.com/huggingface/optimum-quanto
+[26] H. Badri and A. Shaji, “Half-quadratic quantization of large machine
+learning models,” Mobius Labs GmbH. Technical blog post, November
+2023. [Online]. Available: https://mobiusml.github.io/hqq_blog/
+[27] E. Frantar, S. Ashkboos, T. Hoefler, and D. Alistarh, “OPTQ: Accurate
+Quantization for Generative Pre-trained Transformers,” Sep. 2022.
+[Online]. Available: https://openreview.net/forum?id=tcbBPnfwxS
+[28] X. Wu, X. Zhu, L. Ma, G. Chen, and W. Yin, “HAMP:
+Head-Aware Mixed-Precision Token Pruning and Quantization for
+Efficient ASR,” in 2025 IEEE 16th International Conference
+on ASIC (ASICON), Oct. 2025, pp. 1–4. [Online]. Available:
+https://ieeexplore.ieee.org/document/11326332
+[29] E. Cohen, H. V. Habi, R. Peretz, and A. Netzer, “Fully quantized
+neural networks for audio source separation,” IEEE Open Journal
+of Signal Processing, vol. 5, p. 926–933, 2024. [Online]. Available:
+http://dx.doi.org/10.1109/OJSP.2024.3425287
+[30] T. Dettmers and L. Zettlemoyer, “The case for 4-bit precision: kbit inference scaling laws,” in Proceedings of the 40th International
+Conference on Machine Learning, ser. ICML’23, vol. 202. Honolulu,
+Hawaii, USA: JMLR.org, 2023, pp. 7750–7774.
+[31] R. Jin, J. Du, W. Huang, W. Liu, J. Luan, B. Wang, and
+D. Xiong, “A Comprehensive Evaluation of Quantization Strategies
+for Large Language Models,” in Findings of the Association for
+Computational Linguistics: ACL 2024, L.-W. Ku, A. Martins,
+
+9
+
+Rios et al.:
+
+and V. Srikumar, Eds. Bangkok, Thailand: Association for
+Computational Linguistics, Aug. 2024, pp. 12 186–12 215. [Online].
+Available: https://aclanthology.org/2024.findings-acl.726/
+[32] T. Kumar, Z. Ankner, B. F. Spector, B. Bordelon, N. Muennighoff,
+M. Paul, C. Pehlevan, C. Re, and A. Raghunathan, “Scaling Laws
+for Precision,” Oct. 2024. [Online]. Available: https://openreview.net/
+forum?id=wg1PCg3CUP
+[33] A. Catalan-Tatjer, N. Ajroldi, and J. Geiping, “Training Dynamics
+Impact Post-Training Quantization Robustness,” Oct. 2025. [Online].
+Available: https://openreview.net/forum?id=ZXr3Xx7Z1O
+[34] Z. Liu, C. Zhao, H. Huang, S. Chen, J. Zhang, J. Zhao, S. Roy, L. Jin,
+Y. Xiong, Y. Shi, L. Xiao, Y. Tian, B. Soran, R. Krishnamoorthi,
+T. Blankevoort, and V. Chandra, “ParetoQ: Improving Scaling Laws
+in Extremely Low-bit LLM Quantization,” Oct. 2025. [Online].
+Available: https://openreview.net/forum?id=PMSNd8xTHp&referrer=
+%5Bthe%20profile%20of%20Yuandong%20Tian%5D(%2Fprofile%
+3Fid%3D~Yuandong_Tian1)
+[35] B. Marie and A. Fujita, “The Uneven Impact of Post-Training
+Quantization in Machine Translation,” Aug. 2025, arXiv:2508.20893
+[cs.CL]. [Online]. Available: http://arxiv.org/abs/2508.20893
+[36] A. Mekala, A. Atmakuru, Y. Song, M. Karpinska, and M. Iyyer,
+“Does quantization affect models’ performance on long-context
+tasks?” in Proceedings of the 2025 Conference on Empirical
+Methods in Natural Language Processing, C. Christodoulopoulos,
+T. Chakraborty, C. Rose, and V. Peng, Eds. Suzhou, China:
+Association for Computational Linguistics, Jan. 2025, pp. 9433–9481.
+[Online]. Available: https://aclanthology.org/2025.emnlp-main.479/
+[37] K. A. K. Borgersen and M. Goodwin, “English K_quantization
+of LLMs Does Not Disproportionately Diminish Multilingual Performance,” in Artificial Intelligence XLII, M. Bramer and F. Stahl, Eds.
+Cham: Springer Nature Switzerland, 2026, pp. 106–115.
+[38] R. Ardila, M. Branson, K. Davis, M. Henretty, M. Kohler, J. Meyer,
+R. Morais, L. Saunders, F. M. Tyers, and G. Weber, “Common voice:
+A massively-multilingual speech corpus,” in Proceedings of the 12th
+Language Resources and Evaluation Conference (LREC), 2020, pp.
+4218–4222. [Online]. Available: https://arxiv.org/abs/1912.06670
+[39] Administration for Digital Industries, Taiwan, “Taiwantongues-asr-ce-dataset,”
+Hugging
+Face
+dataset,
+2025.
+[Online].
+Available:
+https://huggingface.co/datasets/adi-gov-tw/
+Taiwan-Tongues-ASR-CE-dataset
+[40] TwinkStart, “speech-hsk,” Hugging Face dataset, 2025. [Online].
+Available: https://huggingface.co/datasets/TwinkStart/speech-HSK
+[41] ——, “speech-cmmlu,” Hugging Face dataset, 2025. [Online]. Available: https://huggingface.co/datasets/TwinkStart/speech-CMMLU
+[42] V. Panayotov, G. Chen, D. Povey, and S. Khudanpur, “Librispeech:
+An asr corpus based on public domain audio books,” in 2015 IEEE
+International Conference on Acoustics, Speech and Signal Processing
+(ICASSP). IEEE, 2015, pp. 5206–5210.
+[43] F. Hernandez, V. Nguyen, S. Ghannay, N. Tomashenko, and
+Y. Estève, “Ted-lium 3: Twice as much data and corpus repartition
+for experiments on speaker adaptation,” in Speech and Computer
+(SPECOM 2018), ser. Lecture Notes in Computer Science, vol.
+11096. Springer, 2018, pp. 198–208. [Online]. Available: https:
+//arxiv.org/abs/1805.04699
+[44] G. Chen, S. Chai, G. Wang, J. Du, W.-Q. Zhang, C. Weng,
+D. Su, D. Povey, J. Trmal, J. Zhang, M. Jin, S. Khudanpur,
+S. Watanabe, S. Zhao, W. Zou, X. Li, X. Yao, Y. Wang, Z. You,
+and Z. Yan, “Gigaspeech: An evolving, multi-domain asr corpus with
+10,000 hours of transcribed audio,” in Proc. Interspeech, 2021, pp.
+3670–3674. [Online]. Available: https://arxiv.org/abs/2106.06909
+[45] C. Wang, M. Rivière, A. Lee, A. Wu, C. Talnikar, D. Haziza,
+M. Williamson, J. Pino, and E. Dupoux, “Voxpopuli: A largescale multilingual speech corpus for representation learning,
+semi-supervised learning and interpretation,” in Proceedings of
+the 59th Annual Meeting of the Association for Computational
+Linguistics and the 11th International Joint Conference on
+Natural Language Processing (ACL-IJCNLP). Association for
+Computational Linguistics, 2021, pp. 993–1003. [Online]. Available:
+https://arxiv.org/abs/2101.00390
+[46] S. Gandhi, P. von Platen, and A. M. Rush, “Esb: A benchmark
+for multi-domain end-to-end speech recognition,” arXiv preprint
+arXiv:2210.13352, 2022. [Online]. Available: https://arxiv.org/abs/
+2210.13352
+
+10
+
+[47] OpenAI, “Whisper large-v2 model card,” Hugging Face model
+card, 2022. [Online]. Available: https://huggingface.co/openai/
+whisper-large-v2
+[48] ——, “Whisper large-v3 model card,” Hugging Face model card, 2023.
+[Online]. Available: https://huggingface.co/openai/whisper-large-v3
+[49] N. Zhou, W. Zhang, C.-Y. Lee, and L. Xu, “Lexical tone recognition
+with an artificial neural network,” Ear and Hearing, vol. 29, no. 3,
+pp. 326–335, 2008.
+[50] K. Tripathi, A. S. Menon, A. Gaurav, R. P. Gohil, and P. Wasnik,
+“Listen like a Teacher: Mitigating Whisper Hallucinations Using
+Adaptive Layer Attention and Knowledge Distillation,” Proceedings
+of the AAAI Conference on Artificial Intelligence, vol. 40,
+no. 39, pp. 33 287–33 295, Mar. 2026. [Online]. Available: https:
+//ojs.aaai.org/index.php/AAAI/article/view/40614
+[51] S. Ginjala, E. Fosler-Lussier, C. W. Myers, and S. Parthasarathy,
+“Do LLM Decoders Listen Fairly? Benchmarking How Language
+Model Priors Shape Bias in Speech Recognition,” Apr. 2026,
+arXiv:2604.21276 [cs.CL]. [Online]. Available: http://arxiv.org/abs/
+2604.21276
+[52] K. Marchisio, W.-Y. Ko, A. Berard, T. Dehaze, and S. Ruder,
+“Understanding and Mitigating Language Confusion in LLMs,”
+in Proceedings of the 2024 Conference on Empirical Methods
+in Natural Language Processing, Y. Al-Onaizan, M. Bansal,
+and Y.-N. Chen, Eds. Miami, Florida, USA: Association for
+Computational Linguistics, Nov. 2024, pp. 6653–6677. [Online].
+Available: https://aclanthology.org/2024.emnlp-main.380/
+
+VOLUME ,
+
+=== PAPER: Application- and Hardware-Aware Backbones for Fine-Grained Image Recognition with Teacher-Guided Data Augmentation ===
+
+Application- and Hardware-Aware Backbones for Fine-Grained
+Image Recognition with Teacher-Guided Data Augmentation
+
+59
+
+Anonymous Author(s)
+
+63
+
+5
+6
+
+60
+61
+62
+64
+
+7
+
+Abstract
+
+65
+
+8
+
+Fine-grained image recognition (FGIR) on phones and embedded
+devices runs under a fixed compute budget, but the most accurate models are large vision transformers pretrained on ImageNet.
+This paper presents teacher-guided data augmentation (TGDA): a
+counterfactual attention learning (CAL) teacher’s part attention
+module drives per-image cropping and dropping augmentations,
+and the same frozen teacher distils into the student. ViTFS is a vision
+transformer whose components and normalisation are each chosen
+for mobile inference. The student never sees ImageNet: training
+on CUB processes 120 million images, 96 percent of which is the
+teacher. At 448×448, ViTFS-T with TGDA beats a pretrained DeiT-B
+(ImageNet-1k) by 1.9 and 1.6 percentage points on Aircraft and Cars,
+and beats a DeiT-T trained from scratch under a prior from-scratch
+recipe by 31.9 percentage points, averaged over the three datasets.
+Replacing LayerNorm with BatchNorm speeds up on-device inference by 2.64 times at 224 × 224 on the Samsung Galaxy A53 5G,
+and is slower than LayerNorm on flagship system-on-chips at that
+size. The recipe loses to a counterfactual attention baseline on two
+soybean datasets with a convolutional student, a scope bound tied
+to part localisability at the student’s resolution. The deployed model
+is trained on the target dataset only; the pretrained model is the
+teacher, which is not shipped.
+
+66
+
+Figure 1: Attention used for augmentation, from a ResNet101 teacher fine-tuned on CUB with counterfactual attention
+learning at 448 × 448. The first row holds the original images,
+the second holds the class activation maps (CAMs) that prior
+work uses [12, 35], and the last two rows hold two maps
+sampled from the part attention module (PAM) for the same
+images.
+
+CCS Concepts
+• Computing methodologies → Computer vision; • Computer
+systems organization → Embedded systems.
+
+Keywords
+
+fine-grained image recognition, knowledge distillation, data augmentation, vision transformers, on-device inference
+
+precision agriculture, and wildlife monitoring, where the camera
+is a phone or an embedded sensor rather than a workstation GPU.
+These settings fix the compute budget and often the input resolution, and low-resolution capture removes exactly the fine detail
+FGIR depends on to separate visually similar categories. An Arm
+Ethos-U65 microcontroller [1] and an ESP32-S3 [7] carry only a
+few megabytes of memory, and the mobile system-on-chips Qualcomm AI Hub profiles [20] run inference under a latency budget
+set by the surrounding application. The model has to run inside
+that budget on the device itself, after whatever training happened
+elsewhere, and it has to do so at a resolution the application dictates
+rather than the resolution the model was designed for. Meeting that
+budget while keeping FGIR’s fine inter-class discrimination is the
+deployment problem this paper addresses.
+The FGIR models that reach the highest accuracy are large vision transformers pretrained on ImageNet-1k [5] or ImageNet-21k
+[6, 22, 26] and then fine-tuned on the target dataset; their accuracy
+is inseparable from that pretraining. A model small enough for
+a phone loses much of that accuracy when trained from scratch
+on the target dataset alone, because FGIR datasets are small and
+a compact model with no prior visual knowledge overfits them
+
+ACM Reference Format:
+Anonymous Author(s). 2026. Application- and Hardware-Aware Backbones
+for Fine-Grained Image Recognition with Teacher-Guided Data Augmentation. In Proceedings of ACM Multimedia Systems Conference (MMSys ’27).
+ACM, New York, NY, USA, 11 pages. https://doi.org/10.1145/nnnnnnn.nnnnnnn
+
+1
+
+86
+
+Introduction
+
+Fine-grained image recognition (FGIR) distinguishes subordinate
+categories within a broader class, such as bird species [28] or car
+models [11]. Deployment settings for FGIR include retail shelf audit,
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for components of this work owned by others than the
+author(s) must be honored. Abstracting with credit is permitted. To copy otherwise, or
+republish, to post on servers or to redistribute to lists, requires prior specific permission
+MMSys ’27, Ghent, Belgium
+© 2026 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+ACM ISBN 978-x-xxxx-xxxx-x/YYYY/MM
+https://doi.org/10.1145/nnnnnnn.nnnnnnn
+1
+
+MMSys ’27, March 30–April 2, 2027, Ghent, Belgium
+
+Anon.
+
+quickly. Table 6 shows a vision transformer trained from random
+initialisation, or initialised by a contrastive or self-supervised pretext task, trailing pretrained accuracy by tens of percentage points
+at 224 × 224. Shrinking a pretrained architecture to fit a phone
+does not remove this dependence; it only shrinks the model that
+still needs the pretraining. It also inherits design choices made for
+ImageNet-scale data and GPU inference rather than for a small
+target dataset and a mobile runtime. The pretraining step itself
+cannot run on the device that will run the model.
+The recipe this paper proposes still relies on a pretrained model,
+but only during training, and that distinction matters for deployment: the pretraining cost is paid once, centrally, and never travels
+to the device. The teacher is a torchvision ResNet-101 [19] pretrained on ImageNet-1k for 90 epochs and then fine-tuned on the
+target dataset with counterfactual attention learning (CAL) [21]
+for 50 epochs; the deployed student never sees ImageNet. For CUB,
+training processes 120 million images in total, of which the teacher’s
+pretraining and fine-tuning account for 96 percent and the student’s
+own training the remaining 4.8 million. That budget is about an
+order of magnitude fewer images than an ImageNet-21k-pretrained
+ViT-B [6, 22] processes, and roughly three times fewer than an
+ImageNet-1k-pretrained DeiT-B [26] processes. A large teacher is
+still trained; it is not shipped.
+The training regime above raises two design questions: how the
+teacher’s knowledge should reach a student of a different resolution
+and device, and how a compact architecture should be shaped
+without inheriting one from a pretrained checkpoint. This paper
+makes the following contributions.
+
+some mobile runtimes. Across two students and five datasets, TGDA
+is the best training setting except for a ResNet-18 student on the
+two soybean datasets, where a counterfactual-attention teacher
+without data-aware augmentation wins; that reversal is a scope
+bound, not noise (Table 7). The distillation weight and temperature
+sweeps confirm the main configuration sits near its optimum rather
+than under it (Table 9, Table 10). Every accuracy cell behind these
+findings is a single run, one seed per configuration.
+
+2 Related Work
+2.1 Fine-grained image recognition
+Fine-grained image recognition (FGIR) classifies subordinate categories within a broader class, such as bird species or car models, where inter-class differences are small and intra-class variation is large. Standard benchmarks cover birds, aircraft, and cars
+[11, 15, 28]. The dominant recipe pairs a large backbone pretrained
+on a generic dataset with a mechanism that localises discriminative parts, whether through learned attention or class activation
+maps. Counterfactual attention learning (CAL) [21] trains such an
+attention mechanism with counterfactual causality. It compares a
+prediction under the learned attention map against a prediction under a counterfactual, non-informative map. Attention is rewarded
+for changing that prediction, not merely for correlating with it. This
+paper uses a CAL-trained model as its teacher.
+A large-scale study of FGIR training and evaluation settings
+reports that backbone choice and the training and evaluation protocol both drive the accuracy-cost trade-off. It also reports that
+data-aware augmentation during training can recover most of the
+accuracy that would otherwise require an inference-time crop [23].
+Separately from FGIR, work on convolutional building blocks for
+low-resolution images and small objects has established that removing strided convolutions and pooling layers, which discard spatial
+detail early, improves accuracy when the input is small (Sunkara
+and Luo [25]). This paper’s convolutional stem for low-resolution
+inputs follows that same finding rather than superseding it.
+
+• Teacher-guided data augmentation (TGDA): a CAL teacher’s
+part attention module (PAM) produces per-image attention
+maps that drive attention cropping and attention dropping,
+and the same frozen teacher distils into the student through
+knowledge distillation (KD).
+• ViTFS: a vision transformer whose components – convolutional stem, positional encoding, LayerScale, register tokens
+– are each selected against a measurement rather than carried over from ImageNet-scale design. Its normalisation
+is chosen for the mobile runtime that executes it, not for
+training convenience.
+• An evaluation that reports accuracy, inference cost and ondevice latency together, across eleven devices, rather than
+accuracy alone, so a gain in one is never read as free in the
+others.
+• A scope bound the evaluation exposes: TGDA’s gain over
+a fine-grained-aware teacher depends on how localisable
+object parts are at the student’s resolution, stated plainly
+rather than left implicit.
+
+2.2
+
+Knowledge distillation and task-specific
+augmentation
+
+Knowledge distillation (KD) trains a smaller student network to
+match the output distribution of a larger teacher [9]. FGIR-specific
+variants add augmentation driven by the teacher’s own attention:
+CEKD [35] cross-distils between augmented views of an ensemble,
+and a dynamic semantic-structure distillation method [12] distils
+high-resolution teacher structure into a low-resolution student.
+Alongside this line, generic augmentation policies transform inputs
+without any teacher signal: TrivialAugment [18] samples a single
+random operation per image, CutMix [33] and Mixup [34] combine pairs of images and labels, and Random Erasing [37] masks
+a random region. Marrie et al. [16] study task-specific distillation
+from large pretrained visual models. They report that established
+distillation practice needs revisiting for such teachers, and that a
+diffusion-based Mixup variant complements standard augmentation
+when downstream samples are scarce. Their setting is distillation
+from a generically pretrained teacher rather than a fine-grainedspecialised one.
+
+At 448 × 448, ViTFS-T trained with TGDA exceeds the ImageNet1k-pretrained DeiT-B on Aircraft and Cars while training on a far
+smaller corpus, and trails the ImageNet-21k-pretrained baselines
+on CUB (Table 4). Against other efficient vision transformers it
+reaches comparable accuracy at a smaller parameter and FLOP
+count (Table 5). Replacing LayerNorm with BatchNorm is faster
+at 448 × 448 on most of the eleven measured devices, and slower
+at 224 × 224 on flagship system-on-chips (Table 3); the proposed
+mechanism is the absence of an accelerated LayerNorm kernel on
+2
+
+Hardware-Aware Backbones for Fine-Grained Image Recognition
+
+MMSys ’27, March 30–April 2, 2027, Ghent, Belgium
+
+TGDA sits in the attention-driven augmentation line but departs
+from it in what supplies the attention. It reuses the part attention
+module of its FGIR teacher directly, rather than the class activation maps that CEKD and prior FGIR-KD methods derive post hoc.
+TGDA also couples augmentation and distillation to one frozen
+teacher, so the same attention that generates the augmented view
+also supervises the student’s prediction on it.
+
+the teacher, so its attention is shaped by the same objective that
+produces the teacher’s predictions.
+The frozen teacher supervises stage two. Given an image, the
+teacher and the student each produce predictions on the original
+image and on its augmented views. A crop or a drop can remove the
+evidence a label depends on, so only the original image is supervised
+against the ground-truth label; the augmented views are supervised
+only through the teacher. The student trains against the loss in
+Equation 1:
+
+240
+241
+
+2.3
+
+Efficient vision transformers and on-device
+inference
+
+A separate line designs vision transformers (ViTs) for inference
+cost rather than for accuracy alone. EfficientViT [13] restructures
+attention for memory efficiency, LeViT [8] and MobileViT [17]
+hybridise convolutional and attention stages for faster inference,
+and Swin Transformer [14], PVT [29], NesT [36], and TinyViT [30]
+build hierarchical or distilled variants that trade representational
+capacity for lower cost. These families optimise throughput or
+FLOPs on generic image classification, not FGIR.
+ViTFS (Section 4) draws individual components from this literature rather than proposing new ones. A convolutional stem replaces
+the linear patch embedding [31]; LayerScale [27] and register tokens [4] stabilise training and remove high-norm artifact tokens;
+and BatchNorm [10] replaces LayerNorm [2] in the transformer
+blocks. Normalisation choice in transformers has been studied for
+reasons beyond accuracy, including runtime behaviour on hardware not designed for LayerNorm’s per-token statistics [24]. What
+is missing from the efficient-ViT literature is a cost account that
+matches how FGIR is deployed. These families are evaluated at ImageNet scale under large-scale pretraining, and their reported cost is
+FLOPs rather than latency measured on the mobile and embedded
+devices FGIR models actually run on.
+
+3
+
+291
+
+(︂
+)︂
+𝑆
+L = LCE 𝑦og
+, 𝑦gt
+[︂
+(︂
+)︂
+(︂
+)︂ ]︂
+𝑆
+𝑆
++ 𝛽 LKD 𝑦og
+, 𝑦𝑇og,𝑇 + LKD 𝑦aug
+, 𝑦𝑇aug,𝑇 .
+
+302
+
+(1)
+
+𝑦𝑆 and 𝑦𝑇 are student and teacher predictions on the original
+(og) and augmented (aug) views, 𝑦gt is the ground-truth label, LCE
+is cross-entropy, and LKD is Kullback-Leibler divergence at temperature 𝑇 . The runs in this paper use a KD term without the 𝑇 2 factor
+of the original KD formulation [9]; in the normalised loss where
+𝛽 is the effective weight, that is 𝛽 = 0.2041 at 𝑇 = 7. Section 6.5
+sweeps both constants around this operating point.
+The pool PAM samples from is a knob between 1 and 8 maps
+per image (Table 11). A larger pool adds teacher computation per
+training step and buys accuracy: widening it from 1 to 8 maps
+gains 4.4 pp on Aircraft. This cost is paid only during training; at
+inference the student runs alone, without the teacher or PAM, so
+the map count is a training-budget decision, not a deployment one.
+TGDA is agnostic to the student’s architecture; Section 4 designs a
+student architecture for on-device inference and trains it with the
+recipe described here.
+
+Teacher-Guided Data Augmentation (TGDA)
+4
+
+TGDA trains a student from scratch on the target dataset in two
+stages, shown in Figure 2. A teacher is trained first and then frozen;
+it then supervises the student with KD on the original image and on
+augmented views the teacher itself generates. Training the teacher
+first, rather than jointly with the student, lets the augmentation
+depend on parts the teacher has already learned to localise on the
+target dataset, instead of a fixed, hand-designed schedule.
+The teacher is a torchvision ResNet-101 pretrained on ImageNet1k and fine-tuned on the target dataset with CAL [21]. CAL trains
+a part attention module (PAM) on top of the backbone: a convolutional head that turns an intermediate feature map into a set of
+attention maps, one per learned part. TGDA samples one map from
+that set per augmentation, weighted toward the maps carrying
+more attention mass, so a crop and a drop of the same image can
+be guided by different parts.
+The sampled map drives two augmentations. Attention cropping
+zooms into the region the map highlights; attention dropping masks
+that region instead, so the student sees a complementary view of
+the same object. Figure 1 shows sampled PAM maps beside the
+class activation maps (CAMs) that prior FGIR-KD augmentation
+methods use [12, 35]; Figure 3 shows the crops and drops those maps
+produce. Unlike a CAM, which is read off the classifier’s weights
+after training, a PAM map comes from a head trained jointly with
+
+Vision Transformer From Scratch (ViTFS)
+
+Training a vision transformer (ViT) from scratch on a few thousand
+fine-grained images, for inference on a phone, is a different design
+problem from adapting a large pretrained ViT. The stock ViT-T/16
+row of Table 1 is that problem unaddressed: without pretraining
+or any of the changes below, the architecture is the starting point
+ViTFS departs from. Every component ViTFS adds is taken from
+prior work and evaluated here in this from-scratch, TGDA-trained,
+mobile-inference setting rather than proposed as new.
+The first group replaces the linear patch embedding with a convolutional stem, adds global average pooling in place of a class
+token, and replaces the learned positional embedding with a twodimensional sinusoidal encoding [31]. Removing strided downsampling early in a convolutional stem is reported to help lowresolution inputs specifically [25]; ViTFS’s stem follows that same
+finding. Mean over the three datasets, this group alone gains 26.4
+pp at 448 × 448, relative to the stock ViT-T/16 baseline. At 224 × 224
+the gain is 13.6 pp, and with the teacher at 448 × 448 and the student
+at 224 × 224 it is 32.2 pp.
+Adding LayerScale [27] and register tokens [4], both randomly
+initialised, brings the cumulative mean gain to 28.7 pp at 448 × 448,
+12.4 pp at 224 × 224, and 33.7 pp in the mixed-resolution setting.
+LayerScale stabilises training by learning a per-channel scale on
+3
+
+MMSys ’27, March 30–April 2, 2027, Ghent, Belgium
+
+Anon.
+
+349
+
+407
+
+350
+
+408
+
+351
+
+409
+
+352
+
+410
+
+353
+
+411
+
+354
+
+412
+
+355
+
+413
+
+356
+
+414
+
+357
+
+415
+
+358
+
+416
+
+359
+
+417
+
+360
+
+418
+
+361
+
+419
+
+362
+
+420
+
+363
+
+421
+
+364
+
+422
+
+365
+
+423
+
+366
+
+424
+
+367
+
+425
+
+368
+
+426
+
+369
+
+427
+
+370
+
+428
+
+371
+
+429
+
+372
+
+430
+
+373
+
+431
+
+374
+
+432
+
+Figure 2: Overview of the two-stage TGDA framework. First, a specialized teacher model is trained with part attention module
+(PAM) to produce discriminative attention maps. These maps are used to generate diverse, data-aware augmentations via
+attention cropping and attention dropping. Second, the frozen teacher then supervises a student model using both the original
+and augmented images through knowledge distillation (KD).
+Table 1: Ablation of the ViTFS components. “CS+GAP+S2D”
+is the convolutional stem with global average pooling and
+a two-dimensional sinusoidal positional encoding, “LS+R”
+is LayerScale with register tokens, and “BN” replaces LayerNorm with BatchNorm. The first row is a stock ViT-T/16.
+Every row is trained with TGDA from random initialisation
+for 800 epochs at 448 × 448 for both teacher and student, with
+a ResNet-101 CAL teacher, AdamW, learning rate 5 × 10−4 ,
+𝑇 = 7 and an effective KD weight of 0.2041, one seed per cell.
+Cells are top-1 test accuracy (%).
+
+399
+400
+401
+
+Figure 3: Data-aware augmentations produced by TGDA on
+CUB from a ResNet-101 CAL teacher at 448 × 448. The first
+row holds the original images, the second the attention crops
+(Crop) and the third the attention drops (Mask).
+
+404
+405
+406
+
+436
+437
+
+CS+GAP+S2D
+
+LS+R
+
+BN
+
+Aircraft
+
+Cars
+
+CUB
+
+✓
+✓
+✓
+
+✓
+✓
+
+✓
+
+61.0
+85.3
+89.3
+92.2
+
+60.4
+91.2
+93.1
+94.5
+
+58.7
+82.7
+83.7
+86.3
+
+Replacing LayerNorm [2] with BatchNorm [10] completes ViTFS
+and brings the cumulative mean gain to 30.9 pp at 448 × 448, 19.7 pp
+at 224×224, and 36.6 pp in the mixed-resolution setting. BatchNorm
+is adopted for two reasons, in this order: it improves accuracy, and it
+removes the LayerNorm kernel that several mobile runtimes do not
+accelerate. LayerNorm computes statistics per token; BatchNorm
+
+402
+403
+
+435
+
+449
+
+391
+
+398
+
+434
+
+438
+
+380
+
+397
+
+433
+
+each residual branch; register tokens give the network spare capacity to route information without loading that role onto patch
+tokens.
+4
+
+Hardware-Aware Backbones for Fine-Grained Image Recognition
+
+MMSys ’27, March 30–April 2, 2027, Ghent, Belgium
+
+computes them per channel over the batch, an operation closer
+to what convolutional-network runtimes already accelerate. Section 6.1 measures the resulting latency directly; the effect is device
+dependent and falls below parity on flagship system-on-chips.
+The family spans three widths, ViTFS-N, ViTFS-M and ViTFS-T,
+sized below a standard ViT-B/16. ViT-B/16 carries 15.4 times as
+many parameters as ViTFS-T.
+
+regime. Section 6.5 reports that sweep as a sensitivity result, not as
+tuning of this configuration.
+ViTFS-T is exported and measured on ten mobile devices and one
+two-core x86 CPU at three input resolutions, once with LayerNorm
+and once with BatchNorm, one measurement per cell (Table 3).
+Reported metrics are top-1 test accuracy, FLOPs and parameters
+at batch size 64, throughput, peak GPU memory, and on-device
+latency and peak memory. Accuracy differences between rows are
+reported in percentage points; absolute accuracies are reported in
+percent.
+Models are implemented in PyTorch [19] and experiments are
+tracked with Weights & Biases [3].
+
+Table 2: Backbone and training method are coupled. ViTFS-T
+(FS-T) and a stock ViT-T/16 (T16) are each trained with crossentropy (CE) and with TGDA, from random initialisation,
+for 800 epochs at 448 × 448 for teacher and student, with a
+ResNet-101 CAL teacher, AdamW, learning rate 5 × 10−4 , 𝑇 = 7
+and an effective KD weight of 0.2041, one seed per cell. Cells
+are top-1 test accuracy (%); “–” marks a configuration with
+no finished run.
+
+483
+
+Model
+
+ViT-T16
+ViTFS-T
+
+Aircraft
+
+Cars
+
+6 Results
+6.1 Latency and memory on edge devices
+Does the normalisation choice that raises ViTFS-T’s accuracy also
+help on the hardware it is deployed on? Some mobile inference
+runtimes ship an accelerated BatchNorm kernel and no equivalent
+for LayerNorm, so a kernel-level advantage would only reach practice if it survives on real devices. On the Samsung Galaxy A53 5G,
+the device with the largest measured gain, replacing LayerNorm
+with BatchNorm gives a 2.64× latency speedup and a 19% reduction
+in peak memory at 224 × 224. At 448 × 448 the same substitution
+gives a 1.21× speedup and a 24% reduction (Table 3, Figure 4). The
+same substitution is not a uniform win: the speedup sits near parity
+on most Pixel devices, and falls below one on flagship system-onchips at 224 × 224 and 672 × 672, where BatchNorm is slower than
+LayerNorm. Peak memory follows a related but not identical pattern: BatchNorm reduces it on the Samsung Galaxy A53 5G at both
+resolutions, and the reduction is likewise not uniform across the
+other ten devices (Table 3). Choosing a normalisation layer for a
+deployment target therefore requires measuring that target, not
+assuming the kernel-level trend transfers across devices.
+
+CUB
+
+CE
+
+TGDA
+
+CE
+
+TGDA
+
+CE
+
+TGDA
+
+45.6
+–
+
+61.0
+92.2
+
+26.4
+88.4
+
+60.4
+94.5
+
+30.8
+69.9
+
+58.7
+86.3
+
+The backbone and the training method are chosen together. Table 2 trains ViTFS-T and a stock ViT-T/16 under CE alone and under
+TGDA. Under CE, ViTFS-T already beats the stock ViT-T/16 by 62.0
+pp on Cars, so the architecture change alone recovers much of what
+from-scratch training otherwise loses. TGDA is not architecture
+specific either: its largest gain over CE across the three datasets is
+34.0 pp for the stock ViT-T/16, on Cars, and 16.3 pp for ViTFS-T, on
+CUB. Neither change alone reaches what the two give together.
+
+5
+
+481
+482
+
+523
+
+Experimental Setup
+
+Experiments use three standard FGIR benchmarks: CUB [28], FGVCAircraft [15] (Aircraft in the tables) and Stanford Cars [11] (Cars in
+the tables). Two ultra-fine-grained soybean-leaf datasets, SoyLocal
+and SoyGene [32], appear only in the generality grid (Table 7) and
+the teacher-architecture comparison (Table 8).
+Three teacher/student resolution pairings recur, named consistently here and in Section 6. The 448/448 setting trains teacher and
+student both at 448 × 448, used in Table 4 and Table 5. The 448/224
+setting trains a 448 × 448 teacher with a 224 × 224 student, marked
+“∗ ” in Table 4. The 224/224 setting trains teacher and student both
+at 224 × 224, used in Table 6, Table 7 and Table 8.
+The teacher is a torchvision ResNet-101 pretrained on ImageNet1k for 90 epochs, then fine-tuned on the target dataset with counterfactual attention learning (CAL) [21] for 50 epochs. The student
+trains from random initialisation and never sees ImageNet. For
+CUB, the pipeline processes 120 million images in total: 96% of that
+is the teacher and 4.8 million images is the student.
+Every student trains for 800 epochs with AdamW, learning rate
+5×10−4 and weight decay 5×10−2 , one seed per cell. Every accuracy
+cell in the tables that follow is a single run.
+Distillation uses a temperature of 𝑇 = 7 with an effective KD
+weight of 0.2041 under the normalised loss. The temperature sweep
+in Table 10 instead runs at a nominal 𝛽 = 10, a different effective
+
+6.2
+
+Accuracy against deployment cost
+
+Training a student from random initialisation instead of from pretrained weights raises the question of how much accuracy that
+gives up, and what running the resulting model costs. If the gap
+to pretrained baselines is small and the cost is low, training from
+scratch is a usable alternative to pretraining rather than only a
+cheaper one. ViTFS-T trained with TGDA outperforms DeiT-B pretrained on ImageNet-1k by 1.9 pp on Aircraft and 1.6 pp on Cars at
+448 × 448. On CUB, the ImageNet-21k-pretrained R50-ViT-B still
+leads (Table 4). Against the DeiT-T trained from scratch under the
+IDMM recipe at the same resolution, ViTFS-T gains 31.9 pp, averaged over Aircraft, Cars and CUB. The Images (K) column in
+Table 4 is the size of the largest training corpus each row used, so a
+pretrained row reports its pretraining set and a from-scratch row
+reports the target dataset’s training split.
+At 224 × 224, ViTFS-T with TGDA reaches a mean top-1 accuracy of 77.6% over Aircraft, Cars and CUB, and gains 26 pp on
+Cars and 37 pp on CUB over the IDMM baseline at that resolution
+(Table 6). Table 5 places the 448 × 448 accuracy beside efficient
+Vision Transformer baselines measured under the same conditions:
+ViT-B/16 carries 15.4× as many parameters as ViTFS-T, and the
+5
+
+MMSys ’27, March 30–April 2, 2027, Ghent, Belgium
+
+Anon.
+
+Table 3: Inference latency and peak memory of ViTFS-T with LayerNorm (LN) and with BatchNorm (BN), across ten mobile
+devices and one two-core x86 server CPU, at three input resolutions. Latency is milliseconds per image; memory is the peak
+resident footprint in megabytes. Speedup is LN latency divided by BN latency, so a value above one means BN is faster. Each
+cell is a single measurement of the deployed model, without the teacher. [TODO: condition: measurement runtime, delegate
+and repetition count]
+
+Device
+
+Res.
+
+LN (ms)
+
+BN (ms)
+
+Speedup
+
+LN (MB)
+
+BN (MB)
+
+Google Pixel 3
+Google Pixel 3
+Google Pixel 3
+Google Pixel 5
+Google Pixel 5
+Google Pixel 5
+Google Pixel 7
+Google Pixel 7
+Google Pixel 7
+Google Pixel 9
+Google Pixel 9
+Google Pixel 9
+Intel(R) Xeon(R) CPU @
+2.20GHz (2 cores)
+Intel(R) Xeon(R) CPU @
+2.20GHz (2 cores)
+Intel(R) Xeon(R) CPU @
+2.20GHz (2 cores)
+Samsung Galaxy A53 5G
+Samsung Galaxy A53 5G
+Samsung Galaxy A53 5G
+Samsung Galaxy S21
+Samsung Galaxy S21
+Samsung Galaxy S21
+Samsung Galaxy S23
+Samsung Galaxy S23
+Samsung Galaxy S23
+Samsung Galaxy S25
+Samsung Galaxy S25
+Samsung Galaxy S25
+Snapdragon 8 Elite QRD
+Snapdragon 8 Elite QRD
+Snapdragon 8 Elite QRD
+Snapdragon X Elite CRD
+Snapdragon X Elite CRD
+Snapdragon X Elite CRD
+
+224
+448
+672
+224
+448
+672
+224
+448
+672
+224
+448
+672
+224
+
+63.54
+337.39
+1026.33
+66.97
+337.08
+968.49
+33.61
+152.48
+421.17
+37.28
+147.22
+496.11
+76.18
+
+60.86
+298.12
+1450.79
+67.81
+312.01
+928.49
+31.79
+139.91
+422.27
+32.13
+155.35
+814.79
+81.62
+
+1.04
+1.13
+0.71
+0.99
+1.08
+1.04
+1.06
+1.09
+1.00
+1.16
+0.95
+0.61
+0.93
+
+77.7
+92.0
+140.0
+179.5
+128.7
+175.4
+136.6
+153.8
+167.0
+136.6
+147.9
+175.6
+16.9
+
+74.3
+103.1
+137.8
+110.2
+128.0
+174.7
+136.6
+147.1
+209.3
+124.4
+156.1
+236.0
+0.0
+
+448
+
+587.79
+
+436.42
+
+1.35
+
+23.4
+
+0.0
+
+672
+
+2072.95
+
+2038.51
+
+1.02
+
+80.4
+
+5.6
+
+224
+448
+672
+224
+448
+672
+224
+448
+672
+224
+448
+672
+224
+448
+672
+224
+448
+672
+
+219.17
+508.16
+1274.27
+36.42
+189.26
+596.39
+1.70
+34.56
+29.58
+0.94
+25.38
+15.16
+1.14
+27.31
+15.12
+2.58
+29.09
+42.33
+
+82.87
+421.10
+1265.38
+35.55
+187.72
+589.38
+3.13
+33.89
+46.71
+1.62
+25.16
+26.05
+1.96
+27.23
+26.34
+5.06
+29.13
+59.56
+
+2.64
+1.21
+1.01
+1.02
+1.01
+1.01
+0.54
+1.02
+0.63
+0.58
+1.01
+0.58
+0.58
+1.00
+0.57
+0.51
+1.00
+0.71
+
+141.7
+172.2
+199.0
+118.3
+144.1
+207.6
+181.4
+714.3
+789.8
+168.3
+912.5
+418.3
+250.1
+915.9
+424.7
+33.3
+37.9
+39.7
+
+114.1
+131.1
+165.6
+124.1
+152.3
+205.5
+186.1
+695.0
+920.9
+198.1
+884.0
+893.4
+250.4
+963.5
+929.9
+34.0
+37.1
+39.9
+
+641
+642
+643
+
+625
+626
+
+640
+
+644
+
+586
+587
+
+639
+
+three ViTFS widths reach the highest measured throughput of the
+models compared there.
+
+6.3
+
+on Aircraft, Cars and CUB, and CAL with knowledge distillation
+(CAL+KD) is best on SoyLocal and SoyGene instead. TGDA’s dataaware augmentation assumes discriminative parts that are spatially
+localisable at the student’s resolution. SoyLocal and SoyGene are
+ultra-fine-grained soybean-leaf images, and that assumption does
+not hold for the ResNet-18 student on them. This is a scope bound
+on the augmentation mechanism; whether the student’s resolution,
+its architecture or the datasets’ part granularity causes it is not
+separated by these runs. On Aircraft, Cars and CUB, TGDA is best
+of the four settings for both students.
+
+Generality across students and datasets
+
+Do TGDA’s gains on the three standard benchmarks generalise
+beyond them, and beyond one student? If the gain is specific to
+Aircraft, Cars and CUB, or to the ViT-T/16 student, it would not
+support a general claim about TGDA. With a ViT-T/16 student,
+TGDA is the best of the four training settings on all five datasets
+in Table 7, where every cell is the mean top-1 accuracy over the
+six augmentation policies. With a ResNet-18 student, TGDA is best
+
+6
+
+696
+
+Hardware-Aware Backbones for Fine-Grained Image Recognition
+
+MMSys ’27, March 30–April 2, 2027, Ghent, Belgium
+
+Table 4: Top-1 test accuracy (%), inference cost and training data volume at 448 × 448. “∗ ” marks a ViTFS student trained at
+224 × 224 from a teacher at 448 × 448; every other ViTFS row trains teacher and student at 448 × 448. ViTFS rows are trained with
+TGDA from random initialisation for 800 epochs with a ResNet-101 CAL teacher, AdamW, learning rate 5 × 10−4 , 𝑇 = 7 and an
+effective KD weight of 0.2041, one seed per cell. “(IN1k PT)” and “(IN21k PT)” rows are pretrained baselines and “(IDMM)” rows
+are from-scratch baselines, both as reported by prior work; the ViT-B row is pretrained on ImageNet-21k, which its Images (K)
+value reflects. FLOPs and parameters are measured for the ViTFS rows only, at batch size 64, and “–” marks a cost the source
+does not report; the ViTFS-T rows measure the vitfs_tiny_gap_224 variant, which differs from the BatchNorm-initialised
+variant scored in the accuracy columns only in normalisation and register initialisation. Images (K) is the size in thousands
+of the largest training corpus a row used: the pretraining set for a pretrained row and the target dataset’s training split for a
+from-scratch row. It does not count epochs.
+
+Method
+DeiT-T (IN1k PT)
+DeiT-S (IN1k PT)
+DeiT-B (IN1k PT)
+ViT-B (IN21k PT)
+R50-ViT-B (IN21k PT)
+DeiT-T (IDMM)
+DeiT-B (IDMM)
+PVTv2-B0 (IDMM)
+PVTv2-B3 (IDMM)
+T2T-ViT-7 (IDMM)
+ViTFS-N∗ (TGDA)
+ViTFS-N (TGDA)
+ViTFS-M∗ (TGDA)
+ViTFS-M (TGDA)
+ViTFS-T∗ (TGDA)
+ViTFS-T (TGDA)
+
+Aircraft
+
+Cars
+
+CUB
+
+FLOPs (G)
+
+Params. (M)
+
+Images (K)
+
+84.7
+88.1
+90.3
+90.0
+92.4
+48.6
+46.6
+83.3
+91.8
+72.9
+85.1
+88.2
+88.8
+91.3
+90.5
+92.2
+
+87.2
+90.7
+92.9
+92.5
+94.0
+77.8
+70.7
+92.0
+94.3
+91.2
+90.4
+91.2
+92.4
+93.9
+93.9
+94.5
+
+82.1
+85.8
+88.0
+90.8
+91.3
+50.9
+54.3
+77.6
+82.8
+63.2
+70.9
+79.4
+78.3
+83.3
+81.2
+86.3
+
+–
+–
+–
+–
+–
+–
+–
+–
+–
+–
+0.13
+0.53
+0.53
+2.07
+1.15
+4.62
+
+–
+–
+–
+–
+–
+–
+–
+–
+–
+–
+0.64
+0.64
+2.52
+2.52
+5.63
+5.63
+
+1281
+1281
+1281
+14197
+14197
+6
+6
+6
+6
+6
+6
+6
+6
+6
+6
+6
+
+Table 5: Inference cost of efficient Vision Transformers and of ViTFS. Accuracy is CUB top-1 (%) at 448 × 448; throughput (“Tp.”),
+FLOPs, parameters and peak GPU memory (“Mem.”) are measured on one GPU at batch size 64 and 448 × 448. Images (K) is the
+size in thousands of the largest training corpus a row used, as in Table 4. The ViTFS-T row measures the vitfs_tiny_gap_224
+variant, which differs from the BatchNorm-initialised variant scored in Table 4 only in normalisation and register initialisation.
+
+Model
+E-ViT𝑚2
+E-ViT𝑚3
+LV-128s
+M-ViT𝑠
+M-ViTv2100
+M-ViTv2125
+Nest-T
+PVT-V2𝑏0
+PVT-V2𝑏1
+Swin-T
+T-ViT
+ViT-T16
+ViTFS-T
+ViTFS-M
+ViTFS-N
+
+Acc. (%)
+
+Tp. (Imgs/s)
+
+FLOPs (G)
+
+Params. (M)
+
+Mem. (GB)
+
+Images (K)
+
+85.4
+85.5
+81.2
+83.5
+87.6
+87.4
+85.5
+86.9
+86.9
+82.4
+88.5
+58.7
+82.7
+83.3
+79.4
+
+758.4
+760.1
+779.9
+662.8
+715.4
+580.2
+244.7
+760.5
+627.0
+393.1
+766.2
+701.6
+784.6
+785.4
+803.0
+
+0.8
+1.0
+1.4
+5.6
+5.6
+8.7
+20.9
+2.1
+8.1
+18.0
+4.7
+7.1
+4.6
+2.1
+0.5
+
+4.0
+6.6
+7.1
+5.1
+4.5
+7.0
+18.3
+3.5
+13.6
+27.7
+5.1
+5.7
+5.6
+2.5
+0.6
+
+2.2
+2.2
+3.1
+4.6
+5.1
+6.7
+12.9
+4.6
+8.8
+5.8
+4.3
+1.7
+2.3
+2.2
+2.1
+
+1281
+1281
+1281
+1281
+1281
+1281
+1281
+1281
+1281
+1281
+14197
+14197
+6
+6
+6
+
+749
+750
+
+757
+
+789
+
+731
+732
+
+756
+
+765
+
+707
+708
+
+755
+
+6.4
+
+as well, the augmentation mechanism does not depend on the
+teacher’s convolutional inductive bias. Table 8 compares a ResNet101 (RN101) against a ViT-B/16 teacher for a ViT-T/16 student, each
+
+Teacher architecture
+
+TGDA’s teacher is a ResNet-101 in every other table. Is a convolutional teacher required? If a Vision Transformer teacher works
+7
+
+MMSys ’27, March 30–April 2, 2027, Ghent, Belgium
+
+Anon.
+
+6.5
+
+813
+814
+815
+
+The main tables fix the KD weight 𝛽 and the temperature 𝑇 on
+CUB with a ResNet-18 student. How much of the reported accuracy
+depends on that choice? If accuracy is flat over a wide range of
+either constant, the specific values chosen are not doing the work.
+Sweeping 𝛽 from 0.02 to 7.0 at 𝑇 = 7 peaks at 𝛽 = 0.2 with 78.70%
+CUB top-1 (Table 9). The effective weight used in every other table,
+0.2041, is near that peak in the normalised formulation. Sweeping 𝑇
+from 0.2 to 50.0 at a nominal 𝛽 = 10 peaks at 𝑇 = 20.0 with 80.51%
+(Table 10). That sweep runs at a different effective KD weight from
+every other table in this paper, so its peak is not evidence that the
+main configuration should have used a higher temperature. The
+two sweeps do not form a single two-dimensional grid over 𝛽 and
+𝑇 , because the loss scaling differs between them.
+Increasing the number of attention maps drawn per image from
+1 to 8 raises Aircraft top-1 accuracy by 4.4 pp (Table 11). The gain
+is monotone in the map count on Aircraft and on CUB, and is not
+monotone on Cars. A 32-map run exists but ran at a different KD
+weight and is omitted as not comparable with these four rows.
+
+7
+
+Figure 4: Inference speedup from replacing LayerNorm with
+BatchNorm in ViTFS-T, per device and input resolution, from
+the same measurements as Table 3. A value above one means
+BatchNorm is faster.
+
+Table 6: Top-1 test accuracy (%) of Vision Transformers
+trained without pretraining at 224 × 224. Rows above “TGDA”
+are as reported by prior work. The last two rows train a stock
+ViT-T/16 and ViTFS-T with TGDA for 800 epochs, teacher and
+student at 224 × 224, with a ResNet-101 CAL teacher, AdamW,
+learning rate 5 × 10−4 , 𝑇 = 7 and an effective KD weight of
+0.2041, one seed per cell.
+Method
+random init.
+SimCLR
+SupCon
+MoCov2
+MoCov3
+DINO
+IDMM
+TGDA
+TGDA+ViTFS
+
+Aircraft
+
+Cars
+
+CUB
+
+14.6
+43.2
+29.4
+37.7
+32.0
+45.7
+43.2
+55.2
+60.1
+
+12.3
+64.3
+66.2
+44.0
+53.7
+65.3
+66.4
+66.1
+92.6
+
+23.8
+36.2
+37.8
+31.6
+20.5
+41.8
+43.1
+52.2
+79.9
+
+Limitations
+
+The training recipe requires a ResNet-101 pretrained on ImageNet1k and then fine-tuned with counterfactual attention learning (CAL);
+the deployed student never sees ImageNet, but the pipeline that
+produces it does. For a CUB student, the teacher accounts for 96%
+of the 120 million images the pipeline processes in total. No experiment in this paper trains the teacher from scratch, so the paper does
+not bound how much of the student’s accuracy comes from that
+pretraining. The comparison against pretrained baselines is not a
+comparison against zero pretraining; it is a comparison against a
+smaller, differently sourced pretraining budget that sits upstream
+of the student.
+With a ResNet-18 student, TGDA is worse than CAL with knowledge distillation (CAL+KD) on SoyLocal and SoyGene (Table 7);
+with a ViT-T/16 student it is not. The augmentation assumes discriminative parts that are spatially localisable at the student’s resolution.
+That assumption is not met by the ResNet-18 student on these
+ultra-fine-grained leaf images, whose classes separate by leaf shape
+and vein pattern rather than by object parts. The paper does not
+establish which of resolution, architecture or dataset granularity is
+responsible for the loss.
+Replacing LayerNorm with BatchNorm is not a uniform latency
+win (Table 3). The LayerNorm/BatchNorm latency ratio falls below
+one on flagship system-on-chips and sits near parity on most Pixel
+devices, so the normalisation choice is a per-target decision, not a
+default. Each cell in that table is a single measurement on one build
+of the model.
+Every accuracy cell in the paper is a single run. The paper reports
+no variance, so small differences between rows are not distinguishable from run-to-run noise, and an ordering between two settings
+that differ by a small margin is not established at this scale.
+The distillation constants 𝛽 and 𝑇 were chosen on CUB, and the
+sweeps that examine them (Table 9, Table 10) cover CUB with a
+ResNet-18 student only. The paper does not show that the same constants are optimal for the other datasets or for the ViTFS students.
+
+841
+842
+
+Sensitivity to the distillation
+hyperparameters
+
+cell the mean top-1 accuracy over the same six augmentation policies as Table 7. Neither teacher wins on all five datasets: RN101
+leads on Cars, CUB and SoyLocal, and ViT-B/16 leads on Aircraft
+and SoyGene. A convolutional teacher is not required for TGDA
+to work, and which architecture is better depends on the dataset
+rather than on a fixed preference for either family.
+8
+
+Hardware-Aware Backbones for Fine-Grained Image Recognition
+
+MMSys ’27, March 30–April 2, 2027, Ghent, Belgium
+
+Table 7: TGDA against three training settings, for two students and five datasets. Every cell is the mean top-1 test accuracy (%)
+over the six augmentation policies (none, random erasing, TrivialAugment, CutMix, MixUp, CutMix+MixUp), one run per
+policy, with a ResNet-101 CAL teacher, teacher and student at 224 × 224, 800 epochs, AdamW, learning rate 5 × 10−4 , one seed per
+cell. CE is cross-entropy, KD is distillation from a fine-tuned teacher, and CAL+KD is distillation from a counterfactual-attention
+teacher without data-aware augmentation. Bold marks the best setting within a student and dataset.
+
+Student
+
+Setting
+
+Aircraft
+
+Cars
+
+CUB
+
+SoyLocal
+
+SoyGene
+
+ViT-T16
+ViT-T16
+ViT-T16
+ViT-T16
+ResNet-18
+ResNet-18
+ResNet-18
+ResNet-18
+
+CE
+KD
+CAL+KD
+TGDA
+CE
+KD
+CAL+KD
+TGDA
+
+34.6
+43.8
+43.3
+49.6
+82.5
+85.5
+83.8
+85.8
+
+23.6
+34.1
+32.5
+50.9
+87.6
+89.8
+89.1
+90.5
+
+23.1
+30.5
+32.6
+44.7
+67.3
+75.4
+78.0
+82.3
+
+17.5
+20.9
+22.5
+23.9
+35.0
+38.2
+39.8
+26.7
+
+27.9
+33.8
+35.0
+36.8
+36.6
+43.1
+48.1
+29.5
+
+Table 8: Effect of the teacher backbone on a TGDA student.
+The student is a stock ViT-T/16 at 224 × 224; the teachers are
+a ResNet-101 (RN101) and a ViT-B/16 (ViT-B16), each finetuned on the target dataset with counterfactual attention
+learning. Every cell is the mean top-1 test accuracy (%) over
+the same six augmentation policies as Table 7, 800 epochs,
+AdamW, learning rate 5 × 10−4 , one seed per cell. Bold marks
+the better teacher per dataset.
+
+Table 10: Effect of the distillation temperature𝑇 on CUB top-1
+test accuracy (%). Same student, teacher, resolution, schedule
+and optimiser as Table 9, one run per point, at a nominal
+𝛽 = 10 under the normalised KD loss. This is a different
+effective weight from the main tables and from Table 9.
+
+956
+957
+958
+
+Teacher
+
+Aircraft
+
+Cars
+
+CUB
+
+SoyLocal
+
+SoyGene
+
+RN101
+ViT-B16
+
+49.6
+56.1
+
+50.9
+46.6
+
+44.7
+28.4
+
+23.9
+23.1
+
+36.8
+49.2
+
+Table 9: Effect of the KD loss weight 𝛽 on CUB top-1 test
+accuracy (%). The student is a ResNet-18 and the teacher a
+ResNet-101 with counterfactual attention learning, both at
+448 × 448, 800 epochs, AdamW, learning rate 5 × 10−4 , 𝑇 = 7,
+one run per point, under the normalised KD loss in which 𝛽
+is the effective weight.
+
+𝛽
+
+CUB (%)
+
+0.02
+0.07
+0.2
+0.7
+2.0
+7.0
+
+74.56
+77.25
+78.70
+78.01
+78.58
+77.67
+
+991
+
+Maps
+1
+2
+4
+8
+
+The 𝛽 sweep holds 𝑇 fixed and the temperature sweep holds a different nominal 𝛽 fixed, so the two probe different one-dimensional
+slices of the loss and cannot be read as a single two-dimensional
+sweep.
+
+8
+
+CUB (%)
+
+0.2
+0.7
+2.0
+5.0
+7.0
+8.0
+9.0
+20.0
+30.0
+50.0
+
+73.99
+72.20
+75.08
+77.77
+77.77
+78.08
+78.86
+80.51
+79.82
+80.34
+
+975
+977
+
+𝑇
+
+Table 11: Effect of the number of attention maps drawn per
+image on top-1 test accuracy (%), from one to eight maps.
+The student is a ResNet-18 at 128 × 128, the teacher a ResNet101 with counterfactual attention learning at 448 × 448, 800
+epochs, AdamW, learning rate 5 × 10−4 , 𝑇 = 7, effective KD
+weight 0.2041, one run per cell. A 32-map run exists but ran
+at a different KD weight and is not comparable with these
+four rows, so it is omitted.
+
+966
+
+976
+
+990
+
+1009
+
+954
+955
+
+989
+
+1003
+
+945
+946
+
+988
+
+992
+
+934
+935
+
+987
+
+Aircraft
+
+Cars
+
+CUB
+
+78.8
+80.5
+82.1
+83.2
+
+86.1
+86.7
+88.0
+87.6
+
+69.0
+70.3
+70.7
+71.1
+
+Conclusion
+
+on the target dataset. TGDA is the best of the compared settings
+for the ResNet-18 and ViT-T/16 students on the object-recognition
+datasets in the generality grid (Table 7). The same augmentation
+improves a ViT-T/16 student under a ResNet-101 teacher and under
+
+Teacher-guided data augmentation (TGDA) trains fine-grained image recognition (FGIR) students that never see ImageNet, using
+attention maps from a counterfactual-attention teacher fine-tuned
+9
+
+MMSys ’27, March 30–April 2, 2027, Ghent, Belgium
+
+Anon.
+
+a ViT-B/16 teacher alike (Table 8). Stock vision transformer students
+trained with TGDA from random initialisation close most of the
+gap to pretrained and from-scratch baselines (Table 6, Table 4).
+ViTFS, a set of architecture changes to the vision transformer
+stem and normalisation layers, narrows the accuracy gap between a
+stock vision transformer student and one built for training without
+pretraining (Table 2, Table 1). Adding the convolutional-stem group,
+then LayerScale with register tokens, then BatchNorm raises accuracy at each step (Table 1), and the resulting student carries fewer
+parameters than a comparable pretrained transformer (Table 5).
+Replacing LayerNorm with BatchNorm in the deployed student changes inference latency and peak memory in a device- and
+resolution-dependent way, measured across ten mobile devices and
+one x86 CPU at three input resolutions (Table 3, Figure 4). The KD
+loss weight used throughout sits near the peak of a wide sweep
+on CUB (Table 9). Extending the latency measurement to a wider
+range of runtimes and accelerators is left open.
+
+1062
+1063
+
+Generative AI Disclosure
+
+1121
+
+1064
+
+Generative artificial-intelligence tools assisted in drafting and editing the text of this manuscript. The authors designed and ran every
+experiment, verified all technical content, checked every reported
+number against its source data, and take full responsibility for the
+accuracy and integrity of this work.
+
+1122
+
+1070
+
+1128
+
+1071
+
+1129
+
+1072
+
+1130
+
+1073
+
+1131
+
+1074
+
+1132
+
+1075
+
+1133
+
+1076
+
+1134
+
+1077
+
+1135
+
+1078
+
+1136
+
+1079
+
+1137
+
+1080
+
+1138
+
+1081
+
+1139
+
+1082
+
+1140
+
+1083
+
+1141
+
+1084
+
+1142
+
+1085
+
+1143
+
+1086
+
+1144
+
+1087
+
+1145
+
+1088
+
+1146
+
+1089
+
+1147
+
+1090
+
+1148
+
+1091
+
+1149
+
+1092
+
+1150
+
+1093
+
+1151
+
+1094
+
+1152
+
+1095
+
+1153
+
+1096
+
+1154
+
+1097
+
+1155
+
+1098
+
+1156
+
+1099
+
+1157
+
+1100
+
+1158
+1159
+
+1101
+1102
+
+10
+
+1160
+
+Hardware-Aware Backbones for Fine-Grained Image Recognition
+
+1161
+
+References
+
+1162
+
+[1] Arm. 2025. Ethos-U65. https://developer.arm.com/Processors/Ethos-U65
+[2] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E. Hinton. 2016. Layer Normalization. doi:10.48550/arXiv.1607.06450 arXiv:1607.06450 [cs, stat].
+[3] Lukas Biewald. 2020. Experiment Tracking with Weights and Biases. https:
+//www.wandb.com/
+[4] Timothée Darcet, Maxime Oquab, Julien Mairal, and Piotr Bojanowski. 2023.
+Vision Transformers Need Registers. In Proceedings of the International Conference
+on Learning Representations. https://openreview.net/forum?id=2dnO3LLiJ1
+[5] J. Deng, W. Dong, R. Socher, L. Li, Kai Li, and Li Fei-Fei. 2009. ImageNet: A
+large-scale hierarchical image database. In 2009 IEEE Conference on Computer
+Vision and Pattern Recognition. 248–255. doi:10.1109/CVPR.2009.5206848
+[6] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg
+Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. 2020. An Image
+is Worth 16x16 Words: Transformers for Image Recognition at Scale. In Proceedings of the International Conference on Learning Representations. https:
+//openreview.net/forum?id=YicbFdNTTy
+[7] Espressif Systems. 2021. ESP32-S3. https://www.espressif.com/en/products/
+socs/esp32-s3 Accessed: 2026-06-27.
+[8] Ben Graham, Alaaeldin El-Nouby, Hugo Touvron, Pierre Stock, Armand Joulin,
+Hervé Jégou, and Matthijs Douze. 2021. LeViT: a Vision Transformer in ConvNet’s Clothing for Faster Inference. In 2021 IEEE/CVF International Conference
+on Computer Vision (ICCV). 12239–12249. doi:10.1109/ICCV48922.2021.01204
+ISSN: 2380-7504.
+[9] Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. 2015. Distilling the Knowledge in
+a Neural Network. doi:10.48550/arXiv.1503.02531 arXiv:1503.02531 [cs, stat].
+[10] Sergey Ioffe and Christian Szegedy. 2015. Batch normalization: accelerating
+deep network training by reducing internal covariate shift. In Proceedings of the
+32nd International Conference on International Conference on Machine Learning Volume 37 (ICML’15). JMLR.org, Lille, France, 448–456.
+[11] Jonathan Krause, Michael Stark, Jia Deng, and Li Fei-Fei. 2013. 3D Object Representations for Fine-Grained Categorization. In 2013 IEEE International Conference
+on Computer Vision Workshops. 554–561. doi:10.1109/ICCVW.2013.77
+[12] Mingjiang Liang, Shaoli Huang, and Wei Liu. 2024. Dynamic semantic structure
+distillation for low-resolution fine-grained recognition. Pattern Recognition 148
+(April 2024), 110216. doi:10.1016/j.patcog.2023.110216
+[13] Xinyu Liu, Houwen Peng, Ningxin Zheng, Yuqing Yang, Han Hu, and Yixuan
+Yuan. 2023. EfficientViT: Memory Efficient Vision Transformer with Cascaded
+Group Attention. In 2023 IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR). 14420–14430. doi:10.1109/CVPR52729.2023.01386 ISSN:
+2575-7075.
+[14] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin,
+and Baining Guo. 2021. Swin Transformer: Hierarchical Vision Transformer
+Using Shifted Windows. In 2021 IEEE/CVF International Conference on Computer
+Vision (ICCV). 10012–10022. https://openaccess.thecvf.com/content/ICCV2021/
+html/Liu_Swin_Transformer_Hierarchical_Vision_Transformer_Using_
+Shifted_Windows_ICCV_2021_paper.html
+[15] Subhransu Maji, Esa Rahtu, Juho Kannala, Matthew Blaschko, and Andrea
+Vedaldi. 2013. Fine-Grained Visual Classification of Aircraft. doi:10.48550/
+arXiv.1306.5151 arXiv:1306.5151 [cs].
+[16] Juliette Marrie, Michael Arbel, Julien Mairal, and Diane Larlus. 2024. On Good
+Practices for Task-Specific Distillation of Large Pretrained Visual Models. Transactions on Machine Learning Research (Feb. 2024). https://openreview.net/forum?
+id=oyISaaeHwD
+[17] Sachin Mehta and Mohammad Rastegari. 2021. MobileViT: Light-weight, Generalpurpose, and Mobile-friendly Vision Transformer. In International Conference on
+Learning Representations (ICLR). https://openreview.net/forum?id=vh-0sUt8HlG
+[18] Samuel G. Müller and Frank Hutter. 2021. TrivialAugment: Tuning-free Yet
+State-of-the-Art Data Augmentation. In 2021 IEEE/CVF International Conference
+on Computer Vision (ICCV). 754–762. doi:10.1109/ICCV48922.2021.00081
+[19] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga,
+Alban Desmaison, Andreas Kopf, Edward Yang, Zachary DeVito, Martin Raison, Alykhan Tejani, Sasank Chilamkurthy, Benoit Steiner, Lu Fang, Junjie Bai,
+and Soumith Chintala. 2019. PyTorch: An Imperative Style, High-Performance
+Deep Learning Library. In Advances in Neural Information Processing Systems,
+Vol. 32. Curran Associates, Inc. https://papers.nips.cc/paper_files/paper/2019/
+hash/bdbca288fee7f92f2bfa9f7012727740-Abstract.html
+[20] Qualcomm. 2025. Qualcomm AI Hub. https://aihub.qualcomm.com
+[21] Yongming Rao, Guangyi Chen, Jiwen Lu, and Jie Zhou. 2021. Counterfactual
+Attention Learning for Fine-Grained Visual Categorization and Re-identification.
+In 2021 IEEE/CVF International Conference on Computer Vision (ICCV). 1005–1014.
+doi:10.1109/ICCV48922.2021.00106
+[22] Tal Ridnik, Emanuel Ben-Baruch, Asaf Noy, and Lihi Zelnik. 2021. ImageNet-21K
+Pretraining for the Masses. In Proceedings of the Neural Information Processing
+Systems Track on Datasets and Benchmarks, Vol. 1. https://datasets-benchmarks-
+
+MMSys ’27, March 30–April 2, 2027, Ghent, Belgium
+
+proceedings.neurips.cc/paper/2021/hash/98f13708210194c475687be6106a3b84Abstract-round1.html
+[23] Edwin Arkel Rios, Augusto Christian Surya, Oswin Gosal, Fernando Mikael,
+Mary Madeline Nicole, Kisoon Jang, Bo-Cheng Lai, and Min-Chun Hu. 2026. A
+Large-Scale Study on the Accuracy vs Cost Trade-offs of Training and Evaluation
+Settings in Fine-Grained Image Recognition. In IEEE/CVF Computer Vision and
+Pattern Recognition Conference (CVPR) 2026 Workshops. arXiv. doi:10.48550/arXiv.
+2605.18700 arXiv:2605.18700 [cs.CV].
+[24] Sheng Shen, Zhewei Yao, Amir Gholami, Michael W. Mahoney, and Kurt Keutzer.
+2020. PowerNorm: rethinking batch normalization in transformers. In Proceedings
+of the 37th International Conference on Machine Learning (ICML’20, Vol. 119).
+JMLR.org, 8741–8751.
+[25] Raja Sunkara and Tie Luo. 2022. No More Strided Convolutions or Pooling:
+A New CNN Building Block for Low-Resolution Images and Small Objects. In
+Machine Learning and Knowledge Discovery in Databases (ECML PKDD). Springer,
+Cham, 443–459. doi:10.1007/978-3-031-26409-2_27
+[26] Hugo Touvron, Matthieu Cord, Matthijs Douze, Francisco Massa, Alexandre
+Sablayrolles, and Herve Jegou. 2021. Training data-efficient image transformers
+& distillation through attention. In Proceedings of the 38th International Conference
+on Machine Learning. PMLR, 10347–10357. https://proceedings.mlr.press/v139/
+touvron21a.html
+[27] Hugo Touvron, Matthieu Cord, Alexandre Sablayrolles, Gabriel Synnaeve, and
+Hervé Jégou. 2021. Going deeper with Image Transformers. In 2021 IEEE/CVF
+International Conference on Computer Vision (ICCV). IEEE Computer Society,
+32–42. doi:10.1109/ICCV48922.2021.00010
+[28] Catherine Wah, Steve Branson, Peter Welinder, Pietro Perona, and Serge Belongie.
+2011. The Caltech-UCSD Birds-200-2011 Dataset.
+[29] Wenhai Wang, Enze Xie, Xiang Li, Deng-Ping Fan, Kaitao Song, Ding Liang,
+Tong Lu, Ping Luo, and Ling Shao. 2022. PVT v2: Improved baselines with
+pyramid vision transformer. Computational Visual Media 8, 3 (Sept. 2022), 415–
+424. doi:10.1007/s41095-022-0274-8
+[30] Kan Wu, Jinnian Zhang, Houwen Peng, Mengchen Liu, Bin Xiao, Jianlong Fu,
+and Lu Yuan. 2022. TinyViT: Fast Pretraining Distillation for Small Vision
+Transformers. In Computer Vision – ECCV 2022. Springer, Cham, 68–85. doi:10.
+1007/978-3-031-19803-8_5
+[31] Tete Xiao, Mannat Singh, Eric Mintun, Trevor Darrell, Piotr Dollar, and
+Ross Girshick. 2021. Early Convolutions Help Transformers See Better. In
+Advances in Neural Information Processing Systems, Vol. 34. Curran Associates, Inc., 30392–30400. https://proceedings.neurips.cc/paper/2021/hash/
+ff1418e8cc993fe8abcfe3ce2003e5c5-Abstract.html
+[32] Xiaohan Yu, Yang Zhao, Yongsheng Gao, Xiaohui Yuan, and Shengwu Xiong.
+2021. Benchmark Platform for Ultra-Fine-Grained Visual Categorization Beyond
+Human Performance. In 2021 IEEE/CVF International Conference on Computer
+Vision (ICCV). 10265–10275. doi:10.1109/ICCV48922.2021.01012
+[33] Sangdoo Yun, Dongyoon Han, Sanghyuk Chun, Seong Joon Oh, Youngjoon
+Yoo, and Junsuk Choe. 2019. CutMix: Regularization Strategy to Train Strong
+Classifiers With Localizable Features. In 2019 IEEE/CVF International Conference
+on Computer Vision (ICCV). IEEE, Seoul, Korea (South), 6022–6031. doi:10.1109/
+ICCV.2019.00612
+[34] Hongyi Zhang, Moustapha Cisse, Yann N. Dauphin, and David Lopez-Paz. 2018.
+mixup: Beyond Empirical Risk Minimization. In International Conference on
+Learning Representations (ICLR). https://openreview.net/forum?id=r1Ddp1-Rb
+[35] Ke Zhang, Jin Fan, Shaoli Huang, Yongliang Qiao, Xiaofeng Yu, and Feiwei Qin.
+2022. CEKD:Cross ensemble knowledge distillation for augmented fine-grained
+data. Applied Intelligence 52, 14 (Nov. 2022), 16640–16650. doi:10.1007/s10489022-03355-0
+[36] Zizhao Zhang, Han Zhang, Long Zhao, Ting Chen, Sercan Ö Arik, and Tomas
+Pfister. 2022. Nested Hierarchical Transformer: Towards Accurate, Data-Efficient
+and Interpretable Visual Understanding. Proceedings of the AAAI Conference on
+Artificial Intelligence 36, 3 (June 2022), 3417–3425. doi:10.1609/aaai.v36i3.20252
+[37] Zhun Zhong, Liang Zheng, Guoliang Kang, Shaozi Li, and Yi Yang. 2020. Random
+Erasing Data Augmentation. In Proceedings of the AAAI Conference on Artificial
+Intelligence, Vol. 34. 13001–13008. doi:10.1609/aaai.v34i07.7000 Number: 07.
+
+11
+
+1276

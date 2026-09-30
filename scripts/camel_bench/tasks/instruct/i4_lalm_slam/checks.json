@@ -1,0 +1,20 @@
+{
+ "max_sentence_words": 25,
+ "forbidden": [
+  ";",
+  "\u2014",
+  " -- "
+ ],
+ "required": [
+  "\\citep{burdissoReducingPromptSensitivity2026}",
+  "\\citep{fongSpeechLLMsLowResource2025}",
+  "\\citep{kolluriRoleEncoderDepth2026}",
+  "\\citep{kumarPerformanceEvaluationSLAMASR2025}",
+  "\\citep{maEmbarrassinglySimpleApproach2024}",
+  "\\citep{salamancaTinyAyaBridging2026}",
+  "\\citep{zhangLanguageFamilyMatters2026}",
+  "\\emph{regional specialization}"
+ ],
+ "min_ratio": 0.6,
+ "max_ratio": 1.4
+}

@@ -1,0 +1,16 @@
+{
+ "max_sentence_words": 25,
+ "forbidden": [
+  ";",
+  "\u2014",
+  " -- "
+ ],
+ "required": [
+  "\\cite{falconllm2025falcone}",
+  "\\cite{ma2024bitnet158,wang2023bitnet}",
+  "\\cite{ma_embarrassingly_2024,chu2024qwen2audio}",
+  "\\cite{prismml2026bonsaiternary,yang_qwen3_2025}"
+ ],
+ "min_ratio": 0.6,
+ "max_ratio": 1.4
+}

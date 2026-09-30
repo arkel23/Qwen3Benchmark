@@ -1,0 +1,24 @@
+{
+  "max_words": 150,
+  "summary_scope": "first paper only: Decomposing Quantization Errors in Mandarin Speech Recognition",
+  "key_facts": [
+    [
+      "quantiz"
+    ],
+    [
+      "mandarin"
+    ],
+    [
+      "tone"
+    ],
+    [
+      "consonant",
+      "vowel",
+      "base syllable"
+    ],
+    [
+      "capacity",
+      "larger models"
+    ]
+  ]
+}
