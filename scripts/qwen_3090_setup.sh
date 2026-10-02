@@ -1,8 +1,7 @@
 #!/bin/bash
 # qwen_3090_setup.sh -- one-time log of commands run to set up Qwen3.8-27B as a local
 # coding-agent backend on server-3090 (llama.cpp/llama-server + Qwen Code harness).
-# Plan: /home/edwinrios/.claude/plans/moonlit-shimmying-squirrel.md
-# Usage notes / caveats hit while running this: qwen_3090_USAGE_AGENTS.md (this directory).
+# Usage notes / caveats hit while running this: ../docs/local_models/qwen_3090_USAGE_AGENTS.md.
 # Convention: each block dated, commented out once run successfully (per ~/.claude/CLAUDE.md).
 set -euo pipefail
 

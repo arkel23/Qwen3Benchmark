@@ -57,3 +57,13 @@ An earlier conclusion that this was a 27B capability ceiling
 - `LAUNCH_QWEN.md` said the one-reply file failed where only q5 failed and q6 passed;
   `docs/camel_model_bench.md` had long sentences and a stale "(deployed)" label.
 - The V100 speed rows name their build as d59d455 rather than "same build".
+
+## 2026-10-03 — the env that runs the repo
+
+- New `requirements.txt` pins what `qwen_generations/plot.py` imports, at the `asr` env's versions:
+  pandas 2.3.3, matplotlib 3.10.8, seaborn 0.13.2. The README names `asr`, `llamacpp-build` and
+  camel's setup; `qwen_generations/README.md` names `asr`.
+- No shell script here runs Python on server-3090: the `camel_bench` scripts and `llama_server.sh`
+  run on camel, and `run_stage1a_gates.sh` is a benchmark task input. They are unchanged.
+- `scripts/qwen_3090_setup.sh` lost a comment naming a plan file on another machine, and its usage
+  pointer now gives the notes' path in `docs/local_models/`.

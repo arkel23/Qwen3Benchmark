@@ -5,6 +5,11 @@ and camel (one V100, 32 GB). They cover how to set the models up on each machine
 run, which model to serve, and how a local model compares with a cloud model when writing research
 code. The operator sheet for camel is `docs/local_models/LAUNCH_QWEN.md`.
 
+On server-3090, `qwen_generations/plot.py` runs in the `asr` conda env, which has the packages in
+`requirements.txt`, and llama.cpp is built in the `llamacpp-build` env. The `camel_bench` harness
+runs on camel and needs only the Python standard library; camel's setup is in
+`docs/local_models/qwen_v100_USAGE.md`.
+
 ## Layout
 
 | path | contents |
@@ -15,4 +20,5 @@ code. The operator sheet for camel is `docs/local_models/LAUNCH_QWEN.md`.
 | `results/*.csv` | the measured numbers, machine-readable; the `camel_*` files hold the model comparison |
 | `scripts/` | the exact commands used, plus `qwen_3090_setup.sh`, `qwen_v100_setup.sh` and `camel_bench/` |
 | `qwen_generations/` | Qwen benchmark scores across generations, with sources, and the script that plots them |
+| `requirements.txt` | the pinned packages of `qwen_generations/plot.py` |
 | `deprecated/` | retired files, each with a note in `deprecated/README.md` |
